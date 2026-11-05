@@ -1,8 +1,9 @@
-// Unmeta Telegram bot: send a file (private chat) or reply /clean to one (group) → the same file without metadata.
+// Unmeta Telegram bot. Private chat: send a file → the same file without metadata. Group: buttons under each file, or /clean and /meta as a reply.
 // Talks to a local Bot API server (files up to 2 GB, read and sent by path). Keeps nothing but each user's mode.
-import { readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { clean, kindOf, fileFromPath, workDir, DiskFile, PRESETS, CATEGORIES, type PresetId } from './engine';
+import { readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { clean, inspect, kindOf, fileFromPath, workDir, DiskFile, WORK, PRESETS, CATEGORIES, type PresetId } from './engine';
+import { esc, mediaOf, metaText, offerable, type Item } from './chat';
 import ruCopy from '../copy/ru.json';
 import enCopy from '../copy/en.json';
 
@@ -15,7 +16,7 @@ const MAX_IN_MEMORY = 300 * 1024 ** 2; // photos and documents are cleaned in me
 // ---------- texts ----------
 const T = {
   ru: {
-    start: 'Пришлите файл — фото, видео, аудио, PDF или документ — и я верну его без скрытых данных: геопозиции, модели телефона, дат, автора, истории правок.\n\nОтправляйте как <b>файл</b>, а не как фото: так Telegram не пережмёт его.\n\nВ группе ответьте <code>/clean</code> на сообщение с файлом.\n\nРежим очистки: /mode\n\nФайлы проходят через сервер бота и удаляются сразу после ответа. Если нужно, чтобы файл совсем не покидал устройство, — сайт: https://unmeta.nolim.cloud',
+    start: 'Пришлите файл — фото, видео, аудио, PDF или документ — и я верну его без скрытых данных: геопозиции, модели телефона, дат, автора, истории правок.\n\nОтправляйте как <b>файл</b>, а не как фото: так Telegram не пережмёт его.\n\nВ группе под файлом появятся кнопки. Ещё можно ответить на сообщение с файлом командой <code>/clean</code> (очистить) или <code>/meta</code> (посмотреть, что внутри).\n\nРежим очистки: /mode\n\nФайл скачивается на сервер бота только когда вы просите, и удаляется сразу после ответа. Другие сообщения группы бот не читает и не хранит. Если нужно, чтобы файл совсем не покидал устройство, — сайт: https://unmeta.nolim.cloud',
     mode: 'Режим очистки сейчас: <b>{mode}</b>. Выберите:',
     modeSet: 'Режим: <b>{mode}</b>',
     queued: 'В очереди, перед вами: {n}',
@@ -33,10 +34,17 @@ const T = {
     tooBigDoc: 'Такой большой документ или фото я пока не потяну. Попробуйте сайт: https://unmeta.nolim.cloud',
     failed: 'Не получилось очистить этот файл. Не отправляйте его как чистый.',
     corrupt: 'Не получилось открыть файл — возможно, он повреждён.',
-    replyToFile: 'Ответьте /clean на сообщение с файлом.',
+    replyToFile: 'Ответьте /clean или /meta на сообщение с файлом.',
+    offer: 'В файле <b>{name}</b> могут быть скрытые данные.',
+    btnClean: 'Очистить от метаданных',
+    btnMeta: 'Посмотреть метаданные',
+    reading: 'Смотрю, что внутри…',
+    metaTitle: 'Что нашлось в файле:',
+    found: 'есть',
+    gone: 'Сообщение с файлом уже удалено.',
   },
   en: {
-    start: 'Send me a file — photo, video, audio, PDF or document — and I will return it without hidden data: location, phone model, dates, author, edit history.\n\nSend it as a <b>file</b>, not as a photo, so Telegram does not recompress it.\n\nIn a group, reply <code>/clean</code> to a message with a file.\n\nCleaning mode: /mode\n\nFiles pass through the bot\'s server and are deleted right after the reply. If the file must never leave your device, use the site: https://unmeta.nolim.cloud',
+    start: 'Send me a file — photo, video, audio, PDF or document — and I will return it without hidden data: location, phone model, dates, author, edit history.\n\nSend it as a <b>file</b>, not as a photo, so Telegram does not recompress it.\n\nIn a group, buttons appear under each file. You can also reply to a file with <code>/clean</code> (clean it) or <code>/meta</code> (see what is inside).\n\nCleaning mode: /mode\n\nA file reaches the bot\'s server only when you ask, and is deleted right after the reply. The bot neither reads nor keeps other group messages. If the file must never leave your device, use the site: https://unmeta.nolim.cloud',
     mode: 'Cleaning mode now: <b>{mode}</b>. Choose:',
     modeSet: 'Mode: <b>{mode}</b>',
     queued: 'Queued, ahead of you: {n}',
@@ -54,7 +62,14 @@ const T = {
     tooBigDoc: 'This document or photo is too big for me yet. Try the site: https://unmeta.nolim.cloud',
     failed: 'Couldn\'t clean this file. Don\'t share it as clean.',
     corrupt: 'Couldn\'t open the file — it may be damaged.',
-    replyToFile: 'Reply /clean to a message with a file.',
+    replyToFile: 'Reply /clean or /meta to a message with a file.',
+    offer: '<b>{name}</b> may contain hidden data.',
+    btnClean: 'Remove metadata',
+    btnMeta: 'View metadata',
+    reading: 'Looking inside…',
+    metaTitle: 'Found in this file:',
+    found: 'present',
+    gone: 'The message with the file is gone.',
   },
 };
 type Lang = keyof typeof T;
@@ -80,50 +95,67 @@ async function tg<R = any>(method: string, params: object = {}): Promise<R> {
 }
 const say = (chat: number, text: string, reply?: number, extra: object = {}) =>
   tg<{ message_id: number }>('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...(reply ? { reply_parameters: { message_id: reply, allow_sending_without_reply: true } } : {}), ...extra });
-const edit = (chat: number, id: number, text: string) => tg('editMessageText', { chat_id: chat, message_id: id, text, parse_mode: 'HTML' }).catch(() => {});
+const edit = (chat: number, id: number, text: string, extra: object = {}) => tg('editMessageText', { chat_id: chat, message_id: id, text, parse_mode: 'HTML', ...extra }).catch(() => {}); // no reply_markup = buttons gone
 const drop = (chat: number, id: number) => tg('deleteMessage', { chat_id: chat, message_id: id }).catch(() => {});
-
-type Media = { file_id: string; file_size?: number; file_name?: string; mime_type?: string };
-const EXT: Record<string, string> = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a' };
-function mediaOf(m: any): { media: Media; name: string; photo: boolean } | null {
-  if (m.photo) return { media: m.photo.at(-1), name: 'photo.jpg', photo: true };
-  const media: Media | undefined = m.document ?? m.video ?? m.audio ?? m.animation ?? m.voice ?? m.video_note;
-  if (!media) return null;
-  const e = EXT[media.mime_type ?? ''] ?? media.mime_type?.split('/')[1] ?? 'bin';
-  return { media, name: media.file_name ?? `${m.voice ? 'voice' : m.audio ? 'audio' : 'video'}.${e}`, photo: false };
-}
 
 // ---------- the work: one file at a time (the engine is serial anyway) ----------
 // ponytail: one global queue; per-chat fairness when the bot serves more than a few chats
 let chain: Promise<unknown> = Promise.resolve();
 let waiting = 0;
+const busy = new Set<number>(); // status messages being worked on: a double tap must not run a job twice
+type Job = { action: 'clean' | 'meta'; chat: number; reply: number; l: Lang; user: number; item: Item; status?: number };
+const offerKeyboard = (l: Lang, buttons: Job['action'][] = ['clean', 'meta']) => ({
+  inline_keyboard: buttons.map((a) => [{ text: a === 'clean' ? T[l].btnClean : T[l].btnMeta, callback_data: `file:${a}` }]),
+});
+// Jobs run one at a time, so everything in the work folder belongs to the job that just ended (even if it failed).
+const sweep = async () => { for (const n of await readdir(WORK).catch(() => [] as string[])) if (n.startsWith('job-')) await rm(join(WORK, n), { recursive: true, force: true }); };
 
-function enqueue(chat: number, reply: number, l: Lang, user: number, item: NonNullable<ReturnType<typeof mediaOf>>) {
-  if ((item.media.file_size ?? 0) > MAX_BYTES) { void say(chat, T[l].tooBig, reply); return; }
+function enqueue(job: Job) {
+  const { chat, reply, l, item } = job;
+  if (job.status) { if (busy.has(job.status)) return; busy.add(job.status); }
+  if ((item.media.file_size ?? 0) > MAX_BYTES) {
+    if (job.status) { busy.delete(job.status); void edit(chat, job.status, T[l].tooBig); } else void say(chat, T[l].tooBig, reply);
+    return;
+  }
   const ahead = waiting++;
-  const status = say(chat, ahead ? fmt(T[l].queued, { n: ahead }) : T[l].downloading, reply);
+  const wait = ahead ? fmt(T[l].queued, { n: ahead }) : T[l].downloading;
+  const status = job.status ? edit(chat, job.status, wait).then(() => ({ message_id: job.status! })) : say(chat, wait, reply);
   chain = chain.then(async () => {
     waiting--;
     const st = (await status.catch(() => null))?.message_id;
-    try { await work(chat, reply, l, user, item, st); }
+    let keep = false;
+    try { keep = await work(job, st); }
     catch (e) {
       console.error('job failed:', e instanceof Error ? e.message : e); // no file names or contents in logs
       const msg = String(e);
       await say(chat, /unsupported|no-av-streams/.test(msg) ? T[l].unsupported : /Error opening|Invalid data|corrupt|not a valid|truncated/i.test(msg) ? T[l].corrupt : T[l].failed, reply);
-    } finally { if (st) await drop(chat, st); }
+    } finally {
+      if (st && !keep) await drop(chat, st);
+      if (job.status) busy.delete(job.status);
+      await sweep();
+    }
   });
 }
 
-async function work(chat: number, reply: number, l: Lang, user: number, item: NonNullable<ReturnType<typeof mediaOf>>, st?: number) {
+/** True = the status message now holds the answer: leave it in the chat. */
+async function work({ action, chat, reply, l, user, item }: Job, st?: number): Promise<boolean> {
   if (st) await edit(chat, st, T[l].downloading);
   const { file_path: input } = await tg<{ file_path: string }>('getFile', { file_id: item.media.file_id });
-  const dir = await workDir();
   try {
     const file = await fileFromPath(input, item.name);
     const kind = await kindOf(file);
-    if (kind === 'unsupported') return void await say(chat, T[l].unsupported, reply);
-    if (kind === 'text') return void await say(chat, T[l].text, reply);
-    if (kind !== 'av' && file.size > MAX_IN_MEMORY) return void await say(chat, T[l].tooBigDoc, reply);
+    if (kind === 'unsupported') return void await say(chat, T[l].unsupported, reply), false;
+    if (kind === 'text') return void await say(chat, T[l].text, reply), false;
+    if (kind !== 'av' && file.size > MAX_IN_MEMORY) return void await say(chat, T[l].tooBigDoc, reply), false;
+    if (action === 'meta') {
+      if (st) await edit(chat, st, T[l].reading);
+      const { found } = await inspect(file, kind);
+      const cats = CATEGORIES.filter((c) => found[c]);
+      if (!cats.length) return void await say(chat, item.photo ? T[l].photoNote : T[l].nothing, reply), false;
+      const text = metaText(T[l].metaTitle, cats, found, (c) => catName(l, c), T[l].found);
+      if (st) await edit(chat, st, text, { reply_markup: offerKeyboard(l, ['clean']) }); else await say(chat, text, reply);
+      return !!st;
+    }
     if (st) await edit(chat, st, T[l].cleaning);
     const keep = PRESETS[modeOf(user)];
     let last = 0;
@@ -131,8 +163,8 @@ async function work(chat: number, reply: number, l: Lang, user: number, item: No
       if (st && Date.now() - last > 3000) { last = Date.now(); void edit(chat, st, fmt(T[l].cleaningPct, { p: Math.round(p * 100) })); }
     });
     const found = CATEGORIES.filter((c) => r.before.found[c]);
-    if (!found.length) return void await say(chat, item.photo ? T[l].photoNote : T[l].nothing, reply);
-    const out = join(dir, r.name);
+    if (!found.length) return void await say(chat, item.photo ? T[l].photoNote : T[l].nothing, reply), false;
+    const out = join(await workDir(), r.name);
     if (r.blob instanceof DiskFile) await rename(r.blob.path, out); else await writeFile(out, new Uint8Array(await r.blob.arrayBuffer()));
     const left = r.notes.filter((n) => n.startsWith('raw-kept:')).flatMap((n) => n.slice(9).split(','));
     const removed = found.filter((c) => !keep.includes(c) && !left.includes(c));
@@ -143,9 +175,8 @@ async function work(chat: number, reply: number, l: Lang, user: number, item: No
       left.length ? fmt(T[l].leftover, { list: [...new Set(left)].map((c) => catName(l, c)).join(', ') }) : '',
     ].filter(Boolean).join('\n');
     await tg('sendDocument', { chat_id: chat, document: `file://${out}`, caption, disable_content_type_detection: true, reply_parameters: { message_id: reply, allow_sending_without_reply: true } });
-    if (r.blob instanceof DiskFile) await rm(dirname(r.blob.path), { recursive: true, force: true });
+    return false;
   } finally {
-    await rm(dir, { recursive: true, force: true });
     await unlink(input).catch(() => {}); // the Bot API server's copy of the original
   }
 }
@@ -164,16 +195,27 @@ async function onMessage(m: any) {
   const group = m.chat.type !== 'private';
   if (cmd?.[1] === 'start' || cmd?.[1] === 'help') return void await say(chat, T[l].start);
   if (cmd?.[1] === 'mode') return void await say(chat, fmt(T[l].mode, { mode: modeName(l, modeOf(user)) }), m.message_id, { reply_markup: modeKeyboard(l, modeOf(user)) });
-  if (group && cmd?.[1] !== 'clean') return; // in groups: only on /clean
+  const action = cmd?.[1] === 'clean' || cmd?.[1] === 'meta' ? cmd[1] : null;
+  if (group && !action) { // privacy mode off: every group message lands here, and only a file's name and type are looked at
+    if (offerable(m)) await say(chat, fmt(T[l].offer, { name: esc(mediaOf(m)!.name) }), m.message_id, { reply_markup: offerKeyboard(l) });
+    return;
+  }
   const own = mediaOf(m), item = own ?? (m.reply_to_message ? mediaOf(m.reply_to_message) : null);
-  if (!item) return void await say(chat, group ? T[l].replyToFile : T[l].start, m.message_id);
-  enqueue(chat, own ? m.message_id : m.reply_to_message.message_id, l, user, item);
+  if (!item) return void await say(chat, group || action ? T[l].replyToFile : T[l].start, m.message_id);
+  enqueue({ action: action ?? 'clean', chat, reply: own ? m.message_id : m.reply_to_message.message_id, l, user, item });
 }
 
 async function onCallback(q: any) {
-  const p = q.data?.replace(/^mode:/, '') as PresetId;
   const l = lang(q.from);
-  if (!(p in PRESETS)) return void await tg('answerCallbackQuery', { callback_query_id: q.id });
+  const [kind, value] = String(q.data ?? '').split(':');
+  if (kind === 'file' && (value === 'clean' || value === 'meta')) {
+    const m = q.message, item = m?.reply_to_message ? mediaOf(m.reply_to_message) : null; // the buttons reply to the file: no state to keep
+    await tg('answerCallbackQuery', { callback_query_id: q.id, ...(item ? {} : { text: T[l].gone }) });
+    if (item) enqueue({ action: value, chat: m.chat.id, reply: m.reply_to_message.message_id, l, user: q.from.id, item, status: m.message_id });
+    return;
+  }
+  const p = value as PresetId;
+  if (kind !== 'mode' || !(p in PRESETS)) return void await tg('answerCallbackQuery', { callback_query_id: q.id });
   await setMode(q.from.id, p);
   await tg('answerCallbackQuery', { callback_query_id: q.id, text: fmt(T[l].modeSet, { mode: modeName(l, p) }).replace(/<\/?b>/g, '') });
   if (q.message) await tg('editMessageText', { chat_id: q.message.chat.id, message_id: q.message.message_id, text: fmt(T[l].modeSet, { mode: modeName(l, p) }), parse_mode: 'HTML', reply_markup: modeKeyboard(l, p) }).catch(() => {});
@@ -181,12 +223,14 @@ async function onCallback(q: any) {
 
 async function main() {
   if (!TOKEN) throw new Error('BOT_TOKEN is not set');
+  await sweep(); // left by a crash or a restart
   me = (await tg<{ username: string }>('getMe')).username;
   for (const [l, scope] of [['ru', 'ru'], ['en', '']] as const) {
     await tg('setMyCommands', { commands: [
       { command: 'start', description: l === 'ru' ? 'Как пользоваться' : 'How to use' },
       { command: 'mode', description: l === 'ru' ? 'Режим очистки' : 'Cleaning mode' },
       { command: 'clean', description: l === 'ru' ? 'Очистить файл (ответом на сообщение)' : 'Clean a file (as a reply)' },
+      { command: 'meta', description: l === 'ru' ? 'Показать метаданные (ответом на сообщение)' : 'Show metadata (as a reply)' },
     ], ...(scope ? { language_code: scope } : {}) });
   }
   console.log(`@${me} ready`);

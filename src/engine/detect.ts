@@ -2,8 +2,8 @@
 export type Kind = 'image' | 'raw' | 'av' | 'pdf' | 'office' | 'svg' | 'text' | 'unsupported';
 
 const ascii = (b: Uint8Array, from: number, len: number) => String.fromCharCode(...b.subarray(from, from + len));
-const RAW = /^(dng|cr2|cr3|crw|nef|nrw|arw|srf|sr2|orf|rw2|raf|pef|srw|x3f|3fr|iiq|erf|mef|mos|kdc|dcr|rwl)$/;
-const OFFICE = /^(docx|docm|dotx|xlsx|xlsm|xltx|pptx|pptm|potx|ppsx|odt|ods|odp|odg)$/;
+export const RAW = /^(dng|cr2|cr3|crw|nef|nrw|arw|srf|sr2|orf|rw2|raf|pef|srw|x3f|3fr|iiq|erf|mef|mos|kdc|dcr|rwl)$/;
+export const OFFICE = /^(docx|docm|dotx|xlsx|xlsm|xltx|pptx|pptm|potx|ppsx|odt|ods|odp|odg)$/;
 const TEXT = /^(txt|md|markdown|csv|tsv|json|jsonc|yaml|yml|toml|ini|cfg|conf|log|xml|html?|css|scss|less|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|sh|bash|zsh|fish|ps1|bat|sql|r|lua|pl|dart|vue|svelte|tex|srt|vtt|env|gitignore)$/;
 
 export function ext(name: string): string {
