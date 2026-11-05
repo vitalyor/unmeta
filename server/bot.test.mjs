@@ -1,175 +1,303 @@
-// The built bot against a fake Bot API: real engine, scripted Telegram. node --test server/bot.test.mjs (after build:server)
-import { test, before, after } from 'node:test';
+// The built bot against a fake Bot API, real engine: node --test server/bot.test.mjs (after build:server)
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, readdir, rm, truncate, writeFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { esc, fileUri, offerable } from './chat.ts';
+import { esc, fileUri, offerable, safeName, sendCall, mediaOf } from './chat.ts';
+import { FakeTelegram, until } from './fake-telegram.mjs';
 
 const fx = (n) => fileURLToPath(new URL(`../test/fixtures/${n}`, import.meta.url));
 const dist = fileURLToPath(new URL('./dist/bot.mjs', import.meta.url));
-const GROUP = { id: -100, type: 'supergroup' }, DM = { id: 7, type: 'private' }, USER = { id: 7, language_code: 'ru' };
-let tmp, srv, bot, inputs = [], calls = [], queue = [], ids = 1000, update = 1;
+const USER = { id: 7, language_code: 'ru' }, USER2 = { id: 8, language_code: 'en' };
+let chatSeq = -100, GROUP, tmp, tg, bot, api, msgs = 5000, made = {};
+const fixture = (id) => made[id] ?? (existsSync(fx(id)) ? fx(id) : null);
 
-const answer = (method, b) => {
-  const call = { method, ...b };
-  calls.push(call);
-  if (method === 'getMe') return { username: 'unmeta_bot' };
-  if (method === 'sendMessage') return { message_id: ++ids };
-  if (method === 'getFile') { const p = join(tmp, `in-${++ids}-${b.file_id}`); inputs.push(p); return copyFile(fx(b.file_id), p).then(() => ({ file_path: p })); }
-  if (method === 'sendDocument') {
-    const p = decodeURIComponent(b.document.replace('file://', '')); // what the real Bot API does with the path
-    if (!existsSync(p)) throw new Error('file to send does not exist');
-    if ((statSync(dirname(p)).mode & 0o005) !== 0o005) throw new Error("can't get stat about the file"); // it runs as another user
-    call.path = p;
-    return { message_id: ++ids };
-  }
-  return true;
+const start = () => {
+  bot = spawn(process.execPath, [dist], { stdio: 'inherit', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'),
+    WINDOW_MS: '80', WINDOW_MAX_MS: '400', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
+  return until(() => tg.of('setMyCommands').length >= 2, 'bot start');
 };
-const send = (u) => queue.push({ update_id: update++, ...u });
-const of = (m) => calls.filter((c) => c.method === m);
-async function until(fn) {
-  for (let i = 0; i < 400; i++) { const r = fn(); if (r) return r; await new Promise((s) => setTimeout(s, 25)); }
-  assert.fail(`timed out; calls: ${calls.map((c) => c.method).join(',')}`);
-}
-/** Nothing is pending: the fake got its polls with an empty queue and no job is left. */
-const settle = () => new Promise((s) => setTimeout(s, 300));
-const doc = (name, chat = GROUP, extra = {}) => ({ message_id: ++ids, chat, from: USER, document: { file_id: name, file_name: name, file_size: 1000 }, ...extra });
-const press = (data, fileMessage, chat = GROUP, statusId = ++ids) => send({ callback_query: { id: 'q', from: USER, data, message: { message_id: statusId, chat, reply_to_message: fileMessage } } });
+const db = () => new DatabaseSync(join(tmp, 'bot.db'), { readOnly: true });
+const rows = (sql, ...a) => { const d = db(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
+const job = (id) => rows('SELECT * FROM jobs WHERE message_id = ?', id)[0];
+const base = (extra = {}) => ({ message_id: ++msgs, chat: { id: GROUP, type: 'supergroup' }, from: USER, ...extra });
+const doc = (file_id, file_name = file_id, extra = {}) => base({ document: { file_id, file_name, file_size: 1000 }, ...extra });
+const video = (file_id) => base({ video: { file_id, file_name: file_id, duration: 3, width: 320, height: 240, mime_type: 'video/mp4' } });
+const prompt = async (after = 0) => until(() => tg.of('sendMessage').slice(after).find((c) => c.reply_markup), 'offer');
+const press = (p, from = USER) => tg.send({ callback_query: { id: 'q', from, data: p.reply_markup.inline_keyboard[0][0].callback_data, message: { message_id: 999, chat: { id: p.chat_id, type: 'supergroup' } } } });
+const settle = () => new Promise((s) => setTimeout(s, 250));
 
 before(async () => {
   tmp = await mkdtemp(join(tmpdir(), 'um-bot-'));
-  srv = createServer((req, res) => {
-    let body = '';
-    req.on('data', (d) => { body += d; }).on('end', async () => {
-      const method = req.url.split('/').at(-1);
-      if (method === 'getUpdates') {
-        const offset = JSON.parse(body).offset;
-        await new Promise((s) => setTimeout(s, 10));
-        const result = queue.filter((u) => u.update_id >= offset);
-        queue = queue.filter((u) => u.update_id < offset ? false : !result.includes(u));
-        return res.end(JSON.stringify({ ok: true, result }));
-      }
-      try { res.end(JSON.stringify({ ok: true, result: await answer(method, JSON.parse(body || '{}')) })); }
-      catch (e) { res.end(JSON.stringify({ ok: false, description: String(e) })); }
-    });
-  });
-  await new Promise((s) => srv.listen(0, '127.0.0.1', s));
-  bot = spawn(process.execPath, [dist], { stdio: 'inherit', env: { ...process.env, BOT_TOKEN: 't', BOT_API: `http://127.0.0.1:${srv.address().port}`, WORK_DIR: join(tmp, 'work') } });
-  await until(() => of('setMyCommands').length === 2);
+  tg = new FakeTelegram(tmp, fixture);
+  api = await tg.listen();
+  made['corrupt.mp4'] = join(tmp, 'corrupt.mp4'); await copyFile(fx('video.mp4'), made['corrupt.mp4']); await truncate(made['corrupt.mp4'], 600);
+  made['empty.mp4'] = join(tmp, 'empty.mp4'); await writeFile(made['empty.mp4'], '');
+  made['fake.pdf'] = join(tmp, 'fake.pdf'); await writeFile(made['fake.pdf'], 'not a pdf at all');
+  await start();
 });
-after(async () => { bot.kill(); srv.closeAllConnections(); srv.close(); await rm(tmp, { recursive: true, force: true }); });
+beforeEach(() => { GROUP = --chatSeq; tg.calls = []; tg.sent = []; tg.downloaded = []; tg.rate.limit = Infinity; });
+after(async () => { bot.kill('SIGKILL'); tg.close(); await rm(tmp, { recursive: true, force: true }); });
 
-test('group: a supported file gets the clean button and nothing is downloaded', async () => {
-  calls = [];
+test('a supported file gets one button, and nothing is downloaded', async () => {
   const m = doc('photo-cyrillic.jpg');
-  send({ message: m });
-  const offer = await until(() => of('sendMessage')[0]);
-  assert.equal(offer.reply_parameters.message_id, m.message_id);
-  assert.deepEqual(offer.reply_markup.inline_keyboard.flat().map((b) => b.callback_data), ['file:clean']);
-  assert.match(offer.text, /photo-cyrillic\.jpg/);
+  tg.send({ message: m });
+  const p = await prompt();
+  assert.equal(p.reply_parameters.message_id, m.message_id);
+  assert.match(p.text, /photo-cyrillic\.jpg/);
+  assert.equal(p.reply_markup.inline_keyboard.flat().length, 1);
   await settle();
-  assert.equal(of('getFile').length, 0);
+  assert.equal(tg.downloaded.length, 0);
+  assert.equal(job(m.message_id).status, 'offered');
 });
 
-test('group: the bot stays silent on everything else', async () => {
-  calls = [];
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/mode' } });
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: 'привет' } });
-  send({ message: doc('notes.txt') });
-  send({ message: doc('scene.blend') });
-  send({ message: doc('photo_clean.jpg') });
-  send({ message: doc('photo.jpg', GROUP, { from: { id: 9, is_bot: true } }) });
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, photo: [{ file_id: 'photo.jpg' }] } });
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/start@other_bot' } });
-  await settle(); await settle();
-  assert.deepEqual(calls.filter((c) => c.method !== 'getMe' && c.method !== 'setMyCommands').map((c) => c.method), []);
+test('silence on chatter, unsupported files, other bots and private chats', async () => {
+  tg.send({ message: base({ text: 'привет' }) });
+  tg.send({ message: doc('notes.txt') });
+  tg.send({ message: doc('scene.blend') });
+  tg.send({ message: doc('video_clean.mp4') });
+  tg.send({ message: base({ from: { id: 9, is_bot: true }, photo: [{ file_id: 'photo.jpg' }] }) });
+  tg.send({ message: base({ text: '/start@other_bot' }) });
+  tg.send({ message: base({ sticker: { file_id: 'x' } }) });
+  const dm = { id: 7, type: 'private' };
+  tg.send({ message: doc('photo.jpg', 'photo.jpg', { chat: dm }) });
+  tg.send({ message: base({ chat: dm, text: '/start' }) });
+  tg.send({ message: base({ chat: dm, text: '/clean', reply_to_message: doc('photo.jpg') }) });
+  await settle();
+  assert.deepEqual(tg.calls.map((c) => c.method).filter((m) => m !== 'setMyCommands' && m !== 'getMe'), []);
 });
 
-test('group: "Remove metadata" replies to the file with the clean copy and leaves nothing behind', async () => {
-  calls = [];
-  const m = doc('video-cyrillic.mp4'), statusId = ++ids;
-  press('file:clean', m, GROUP, statusId);
-  const sent = await until(() => of('sendDocument')[0]);
-  assert.equal(basename(sent.path), 'video-cyrillic_clean.mp4');
-  assert.equal(sent.reply_parameters.message_id, m.message_id);
-  assert.match(sent.caption, /Удалено:.*Автор/);
-  await until(() => of('deleteMessage').some((c) => c.message_id === statusId));
+test('compressed photos are really checked: a clean one says so, with no file back', async () => {
+  const m = base({ photo: [{ file_id: 'photo.gif', width: 10 }, { file_id: 'clean-pixel.png', width: 90 }] });
+  made['clean-pixel.png'] = join(tmp, 'clean-pixel.png');
+  await writeFile(made['clean-pixel.png'], Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+  tg.send({ message: m });
+  press(await prompt());
+  await until(() => tg.of('editMessageText').some((c) => /Проверил это фото/.test(c.text)), 'report');
+  assert.deepEqual(tg.downloaded.map((d) => d.file_id), ['clean-pixel.png'], 'the largest size');
+  assert.equal(tg.sent.length, 0);
+  assert.equal(job(m.message_id).status, 'nothing');
+});
+
+test('a compressed photo that still has metadata is cleaned', async () => {
+  tg.send({ message: base({ photo: [{ file_id: 'photo.jpg' }] }) });
+  press(await prompt());
+  const s = await until(() => tg.sent[0], 'send');
+  assert.equal(s.name, 'photo_clean.jpg');
+});
+
+test('every kind of message leaves the way it arrived', async () => {
+  const cases = [
+    [doc('video-cyrillic.mp4'), 'sendDocument', true],
+    [video('video.mp4'), 'sendVideo', true],
+    [base({ audio: { file_id: 'audio.mp3', file_name: 'audio.mp3', duration: 2 } }), 'sendAudio', false],
+    [base({ voice: { file_id: 'audio.opus', duration: 2, mime_type: 'audio/ogg' } }), 'sendVoice', false],
+    [base({ animation: { file_id: 'video.mp4', file_name: 'a.mp4', duration: 1, width: 10, height: 10 } }), 'sendAnimation', true],
+    [base({ video_note: { file_id: 'video.mp4', duration: 1, length: 240 } }), 'sendVideoNote', true],
+    [doc('photo.jpg'), 'sendDocument', true],
+    [doc('doc.pdf'), 'sendDocument', false],
+  ];
+  for (const [m, method, thumb] of cases) {
+    tg.calls = []; tg.sent = [];
+    tg.send({ message: m });
+    await settle();
+    press(await prompt());
+    const s = await until(() => tg.sent[0], `send ${method}`);
+    assert.equal(s.method, method);
+    assert.equal(s.thumb, thumb, `${method} preview`);
+    assert.equal(s.reply, m.message_id);
+    if (method === 'sendVideo') { assert.equal(s.supports_streaming, true); assert.equal(s.duration, 3); }
+    await until(() => job(m.message_id).status === 'done', 'done');
+  }
+});
+
+test('a pack of files gets one button; every file answers its own message; a double tap runs once', async () => {
+  const ms = Array.from({ length: 6 }, (_, i) => doc('photo.jpg', `p${i}.jpg`));
+  ms[5] = doc('fake.pdf');
+  for (const m of ms) tg.send({ message: m });
+  const p = await prompt();
+  assert.match(p.text, /Файлов: 6/);
+  await settle();
+  assert.equal(tg.of('sendMessage').length, 1);
+  press(p); press(p);
+  await until(() => tg.of('editMessageText').some((c) => /Готово\. Очищено: 5 из 6/.test(c.text)), 'summary');
+  assert.deepEqual(tg.sent.map((s) => s.reply).sort(), ms.slice(0, 5).map((m) => m.message_id).sort());
+  await settle();
+  assert.equal(tg.sent.length, 5);
+});
+
+test('/off hides the button only for that person and that group; /clean still works; /on brings it back', async () => {
+  tg.send({ message: base({ text: '/off' }) });
+  await until(() => tg.of('sendMessage').length, 'answer');
+  const mine = doc('photo.jpg'), theirs = doc('photo.jpg', 'p.jpg', { from: USER2 });
+  tg.send({ message: mine }); tg.send({ message: theirs });
+  const p = await prompt();
+  assert.equal(p.reply_parameters.message_id, theirs.message_id);
+  await settle();
+  assert.equal(job(mine.message_id), undefined);
+  tg.send({ message: base({ text: '/clean', reply_to_message: mine }) });
+  await until(() => tg.sent.some((s) => s.reply === mine.message_id), 'clean');
+  tg.send({ message: base({ text: '/on' }) });
+  await settle(); tg.calls = [];
+  tg.send({ message: doc('photo.jpg') });
+  await prompt();
+});
+
+test('/clean: again says already done, on text asks for a file, a failed file can be retried', async () => {
+  const m = doc('photo.jpg');
+  tg.send({ message: base({ text: '/clean@unmeta_bot', reply_to_message: m }) });
+  await until(() => tg.sent.length === 1, 'send');
+  await until(() => job(m.message_id).status === 'done', 'done');
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => tg.of('sendMessage').some((c) => /уже очищен/.test(c.text)), 'already');
+  assert.equal(tg.sent.length, 1);
+  tg.send({ message: base({ text: '/clean', reply_to_message: base({ text: 'hi' }) }) });
+  await until(() => tg.of('sendMessage').some((c) => /Ответьте \/clean/.test(c.text)), 'ask');
+});
+
+test('a damaged, empty, fake or vanished file gets an honest answer and leaves nothing behind', async () => {
+  for (const [id, text] of [['corrupt.mp4', /повреждён|не умею/], ['empty.mp4', /не умею/], ['fake.pdf', /не умею|повреждён/], ['vanished.mp4', /Не получилось/]]) {
+    tg.calls = [];
+    const m = doc(id);
+    tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+    await until(() => tg.of('editMessageText').some((c) => text.test(c.text)), id);
+    assert.notEqual(job(m.message_id).error, null);
+  }
   await settle();
   assert.deepEqual((await readdir(join(tmp, 'work'))).filter((n) => n.startsWith('job-')), []);
-  assert.ok(inputs.every((p) => !existsSync(p)), 'the downloaded original is deleted');
+  assert.ok(tg.downloaded.every((d) => !existsSync(d.path)), 'originals deleted');
 });
 
-test('a Cyrillic name with spaces and a percent sign is sent intact', async () => {
-  calls = [];
-  const m = doc('photo-cyrillic.jpg');
-  m.document.file_name = 'Отпуск 100% #1.jpg';
-  press('file:clean', m);
-  assert.equal(basename((await until(() => of('sendDocument')[0])).path), 'Отпуск 100% #1_clean.jpg');
+test('odd names survive: emoji, percent, slashes, 500 characters', async () => {
+  for (const [name, want] of [['Отпуск 100% #1 🎉.jpg', 'Отпуск 100% #1 🎉_clean.jpg'], ['../../etc/passwd.jpg', '.._.._etc_passwd_clean.jpg'.replace(/^\.+/, '')], ['я'.repeat(500) + '.jpg', null]]) {
+    tg.sent = []; tg.calls = [];
+    tg.send({ message: base({ text: '/clean', reply_to_message: doc('photo.jpg', name) }) });
+    const s = await until(() => tg.sent[0], name.slice(0, 20));
+    if (want) assert.equal(s.name, want);
+    assert.ok(Buffer.byteLength(s.name) <= 255);
+    assert.ok(s.name.endsWith('.jpg'));
+    await settle();
+  }
 });
 
-test('a double tap runs the job once', async () => {
-  calls = [];
-  const m = doc('photo-cyrillic.jpg'), statusId = ++ids;
-  press('file:clean', m, GROUP, statusId);
-  press('file:clean', m, GROUP, statusId);
-  await until(() => of('sendDocument').length);
+test("Telegram's rate limit is waited out, nothing is lost", async () => {
+  tg.rate = { limit: 2, perMs: 200 };
+  const ms = Array.from({ length: 6 }, (_, i) => doc('photo.jpg', `r${i}.jpg`));
+  for (const m of ms) tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => tg.sent.length === 6, '6 sends', 40_000);
+  assert.ok(tg.limited > 0, 'the limit was hit');
+});
+
+test('a group upgraded to a supergroup keeps working under its new id', async () => {
+  const m = doc('photo.jpg'), to = GROUP - 5000;
+  tg.send({ message: m });
+  const p = await prompt();
+  tg.migrated.set(GROUP, to);
+  press(p);
+  await until(() => tg.sent.some((s) => s.chat === to), 'sent to the new id');
+  assert.equal(job(m.message_id).chat_id, to);
+});
+
+test('an update sent just before the move still lands in the new group, no second copy', async () => {
+  const old = GROUP, to = GROUP - 7000, m = doc('photo.jpg');
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => tg.sent.length === 1 && job(m.message_id)?.status === 'done', 'first');
+  tg.send({ message: { message_id: ++msgs, chat: { id: old, type: 'group' }, from: USER, migrate_to_chat_id: to } });
   await settle();
-  assert.equal(of('sendDocument').length, 1);
+  tg.send({ message: { ...base({ text: '/clean', reply_to_message: m }), chat: { id: old, type: 'group' } } });
+  await until(() => tg.of('sendMessage').some((c) => /уже очищен/.test(c.text)), 'already');
+  assert.equal(tg.sent.length, 1);
+  assert.equal(rows('SELECT COUNT(*) n FROM jobs WHERE message_id = ?', m.message_id)[0].n, 1);
 });
 
-test('group: /clean works as a reply; /meta and old view buttons do nothing', async () => {
-  calls = [];
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/meta', reply_to_message: doc('doc.pdf') } });
-  press('file:meta', doc('doc.pdf'));
-  await settle(); await settle();
-  assert.equal(of('getFile').length, 0);
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/clean', reply_to_message: doc('doc.pdf') } });
-  assert.equal(basename((await until(() => of('sendDocument')[0])).path), 'doc_clean.pdf');
+test('kicked from a group: its jobs end, the bot keeps serving others', async () => {
+  const m = doc('photo.jpg');
+  tg.kicked.add(GROUP);
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'failed', 'failed');
+  assert.equal(job(m.message_id).error, 'bot-removed');
+  GROUP = --chatSeq;
+  tg.send({ message: base({ text: '/clean', reply_to_message: doc('photo.jpg') }) });
+  await until(() => tg.sent.length === 1, 'other group served');
 });
 
-test('group: /clean without a file asks for one; a deleted file message is explained', async () => {
-  calls = [];
-  send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/clean' } });
-  await until(() => of('sendMessage').some((c) => /Ответьте \/clean/.test(c.text)));
-  press('file:clean', undefined);
-  await until(() => of('answerCallbackQuery').some((c) => /удалено/.test(c.text)));
+test('network failures are retried until the file is delivered', async () => {
+  tg.flaky = 0.3;
+  const m = doc('photo.jpg');
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => ['done', 'failed'].includes(job(m.message_id)?.status), 'end');
+  tg.flaky = 0;
+  assert.ok(job(m.message_id).status === 'failed' || tg.sent.length >= 1);
 });
 
-test('private chat: complete silence', async () => {
-  calls = [];
-  send({ message: doc('photo-cyrillic.jpg', DM) });
-  send({ message: { message_id: ++ids, chat: DM, from: USER, text: '/start' } });
-  send({ message: { message_id: ++ids, chat: DM, from: USER, text: '/clean', reply_to_message: doc('photo.jpg', DM) } });
-  send({ message: { message_id: ++ids, chat: DM, from: USER, text: 'привет' } });
-  press('file:clean', doc('photo.jpg', DM), DM);
-  await settle(); await settle();
-  assert.deepEqual(calls.map((c) => c.method).filter((m) => m !== 'answerCallbackQuery'), []);
-});
-
-test('a failed job still cleans up and says so', async () => {
-  calls = [];
-  press('file:clean', doc('scene.blend'));
-  await until(() => of('sendMessage').some((c) => /не умею чистить/.test(c.text)));
+test('killed mid-work: restarts, finishes, repeats nothing; a repeated update does nothing', async () => {
+  tg.latency = 150;
+  const ms = Array.from({ length: 4 }, (_, i) => doc('photo.jpg', `k${i}.jpg`));
+  for (const m of ms) tg.send({ message: m });
+  press(await prompt());
+  await until(() => tg.downloaded.length >= 1, 'first download');
+  bot.kill('SIGKILL');
+  await settle();
+  tg.latency = 0;
+  await start();
+  await until(() => ms.every((m) => job(m.message_id)?.status === 'done'), 'all done after restart');
+  assert.equal(new Set(tg.sent.map((s) => s.reply)).size, 4);
   await settle();
   assert.deepEqual((await readdir(join(tmp, 'work'))).filter((n) => n.startsWith('job-')), []);
 });
 
-test('file checks from the message alone', () => {
+test('a file that hangs is killed, the job fails honestly, the bot lives on', async () => {
+  bot.kill('SIGKILL'); await settle();
+  const fast = spawn(process.execPath, [dist], { stdio: 'ignore', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), WINDOW_MS: '80', TICK_MS: '10', RETRY_MS: '10', JOB_MIN_MS: '1', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
+  const m = doc('photo.jpg');
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'failed', 'failed');
+  assert.match(job(m.message_id).error, /worker-died/);
+  await until(() => tg.of('editMessageText').some((c) => /Не получилось/.test(c.text)), 'told');
+  fast.kill('SIGKILL'); await settle();
+  await start();
+});
+
+test('/clean takes the last file out of a pack: the pack and its button quietly end', async () => {
+  const m = doc('photo.jpg');
+  tg.send({ message: m });
+  const p = await prompt();
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => tg.sent.length === 1, 'clean');
+  await until(() => rows(`SELECT COUNT(*) n FROM batches WHERE status != 'finished' AND chat_id = ?`, GROUP)[0].n === 0, 'pack ends');
+  assert.ok(tg.of('deleteMessage').length >= 1, 'the button is gone');
+  press(p);
+  await settle();
+  assert.equal(tg.sent.length, 1);
+});
+
+test('the database keeps ids and statuses, not file names', async () => {
+  const m = doc('photo.jpg', 'секретное имя.jpg');
+  tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'done', 'done');
+  const j = job(m.message_id);
+  assert.equal(j.file_name, null); assert.equal(j.file_id, null); assert.ok(j.result_id);
+});
+
+test('decisions from the message alone', () => {
   const d = (file_name, mime_type, file_size = 1) => ({ document: { file_name, mime_type, file_size } });
   for (const n of ['a.JPG', 'a.heic', 'a.CR3', 'a.docx', 'a.pdf', 'a.mov', 'a.mp3', 'a.svg']) assert.ok(offerable(d(n)), n);
   for (const n of ['a.txt', 'a.xml', 'a.zip', 'a.ts', 'a_clean.mp4']) assert.ok(!offerable(d(n)), n);
   assert.ok(offerable(d(undefined, 'video/mp4')));
-  assert.ok(offerable({ video: { mime_type: 'video/mp4' } }));
+  for (const m of [{ video: {} }, { audio: {} }, { voice: {} }, { animation: {} }, { video_note: {} }, { photo: [{}] }]) assert.ok(offerable(m), Object.keys(m)[0]);
   assert.ok(!offerable(d('a.mp4', 'video/mp4', 3e9)), 'over the Bot API limit');
-  assert.ok(!offerable({ animation: { file_name: 'a.mp4' } }));
-});
-
-test('names are safe in chat text and in paths', () => {
+  assert.ok(offerable({ from: { is_bot: true }, sender_chat: { id: 1 }, document: { file_name: 'a.pdf' } }), 'anonymous admin');
+  assert.ok(!offerable({ is_automatic_forward: true, video: {} }), 'channel repost');
   assert.equal(esc('<b>&'), '&lt;b&gt;&amp;');
-  assert.equal(fileUri('/w/job-1/Отпуск 100%.jpg'), 'file:///w/job-1/%D0%9E%D1%82%D0%BF%D1%83%D1%81%D0%BA%20100%25.jpg');
+  assert.equal(fileUri('/w/Отпуск 100%.jpg'), 'file:///w/%D0%9E%D1%82%D0%BF%D1%83%D1%81%D0%BA%20100%25.jpg');
+  assert.equal(safeName('a/b\\c\n.jpg'), 'a_b_c_.jpg');
+  assert.ok(Buffer.byteLength(safeName('🎉'.repeat(100) + '.mp4')) <= 204);
+  assert.equal(safeName('...'), 'file');
+  assert.match(safeName('я'.repeat(500) + '_clean.mp4'), /я_clean\.mp4$/, 'the suffix survives the trim');
+  assert.equal(sendCall(mediaOf({ video_note: { file_id: 'x', length: 240 } }).shape, '/a', null, 'c').params.caption, undefined, 'round videos take no caption');
 });

@@ -16,6 +16,7 @@ services:
     environment:
       BOT_API: http://bot-api:8081
       WORK_DIR: /var/lib/telegram-bot-api/work
+      DB_FILE: /var/lib/telegram-bot-api/unmeta.db
     volumes:
       - data:/var/lib/telegram-bot-api
     depends_on:

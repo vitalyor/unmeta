@@ -25,4 +25,4 @@ setEngine((job) => {
 });
 
 export * from '../src/engine/index';
-export { fileFromPath, workDir, DiskFile, WORK } from './av';
+export { fileFromPath, makeThumb, workDir, DiskFile, WORK } from './av';

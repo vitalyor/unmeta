@@ -24,7 +24,7 @@ export default defineConfig({
     outDir: 'server/dist',
     emptyOutDir: true,
     rollupOptions: {
-      input: { bot: here('./server/bot.ts'), engine: here('./server/engine.ts') },
+      input: { bot: here('./server/bot.ts'), worker: here('./server/worker.ts'), engine: here('./server/engine.ts') },
       output: { format: 'es', entryFileNames: '[name].mjs', chunkFileNames: '[name].mjs' }, // one folder: the wasm sits next to every chunk
     },
   },

@@ -61,7 +61,7 @@ function keptTags(tags: Tag[], keep: Category[]): string[] {
  * The cleaning remux: video + audio only (no data tracks: GoPro GPMF, DJI, iPhone mebx GPS), no metadata or
  * chapters, no re-encoding. `covers` = already cleaned cover images that replace the original cover streams.
  */
-export function remuxArgs(o: { input: string; log: string; ext: string; covers: string[] | null; tags: Tag[]; keep: Category[]; out: string }): string[] {
+export function remuxArgs(o: { input: string; log: string; ext: string; covers: string[] | null; tags: Tag[]; keep: Category[]; out: string; extra?: string[] }): string[] {
   const streams = avStreams(o.log);
   const swap = o.covers !== null; // covers are taken out, cleaned and put back
   const covers = o.covers ?? [];
@@ -75,6 +75,6 @@ export function remuxArgs(o: { input: string; log: string; ext: string; covers: 
     ...covers.flatMap((_, k) => [`-disposition:v:${nMain + k}`, 'attached_pic']),
     ...(o.ext === 'mp3' ? ['-id3v2_version', '3'] : []),
     '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact',
-    ...keptTags(o.tags, o.keep), '-f', muxer(o.log, o.ext), o.out,
+    ...keptTags(o.tags, o.keep), ...(o.extra ?? []), '-f', muxer(o.log, o.ext), o.out,
   ];
 }

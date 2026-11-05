@@ -2,13 +2,13 @@
 // Files stay on disk: a 2 GB video is never loaded into this 1 GB machine's memory.
 import { spawn } from 'node:child_process';
 import { openAsBlob } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { join } from 'node:path';
 import { ext } from '../src/engine/detect';
-import { parseTags, avStreams, remuxArgs } from '../src/engine/av-args';
+import { parseTags, avStreams, muxer, remuxArgs } from '../src/engine/av-args';
 import type { Category, Tag } from '../src/engine/categories';
 
 export { AV_KEEPABLE } from '../src/engine/av-args';
@@ -34,6 +34,19 @@ function ffmpeg(args: string[], onLine?: (line: string) => void): Promise<{ code
     p.on('error', rej);
     p.on('close', (code) => res({ code: code ?? 1, log }));
   });
+}
+const FASTSTART = /^(mp4|mov|ipod|3gp)$/; // the index goes first: Telegram's player can start before the whole file arrives
+
+/** A preview for the chat: pixels only, up to 320 px and 200 KB as Telegram requires. Null if the file has no picture. */
+export async function makeThumb(input: string, out: string): Promise<string | null> {
+  const shot = (seek: string[], q: string) => ffmpeg([...seek, '-i', input, '-map', '0:v:0', '-frames:v', '1', '-map_metadata', '-1', '-vf', 'scale=320:320:force_original_aspect_ratio=decrease', '-q:v', q, '-fflags', '+bitexact', '-flags', '+bitexact', '-f', 'image2', out]);
+  for (const q of ['6', '14']) {
+    if ((await shot(['-ss', '1'], q)).code !== 0 || (await stat(out).catch(() => null))?.size === 0 || !(await stat(out).catch(() => null))) await shot([], q); // shorter than a second, or a still image
+    const s = await stat(out).catch(() => null);
+    if (s && s.size > 0 && s.size <= 200_000) return out;
+  }
+  await rm(out, { force: true });
+  return null;
 }
 const info = async (path: string) => (await ffmpeg(['-i', path])).log; // exits 1: no output, by design
 
@@ -71,7 +84,7 @@ export function cleanAv(file: File, tags: Tag[], keep: Category[], onProgress?: 
       }
       const out = join(dir, `out.${e}`);
       const total = Number(log.match(/Duration: (\d+):(\d+):([\d.]+)/)?.slice(1).reduce((s, v) => s * 60 + Number(v), 0)) || 0;
-      const { code } = await ffmpeg(remuxArgs({ input: path, log, ext: e, covers: cleanCover ? covers : null, tags, keep, out }), (l) => {
+      const { code } = await ffmpeg(remuxArgs({ input: path, log, ext: e, covers: cleanCover ? covers : null, tags, keep, out, extra: FASTSTART.test(muxer(log, e)) ? ['-movflags', '+faststart'] : [] }), (l) => {
         const t = l.match(/time=(\d+):(\d+):([\d.]+)/);
         if (t && total) onProgress?.(Math.min(1, t.slice(1).reduce((s, v) => s * 60 + Number(v), 0) / total));
       });
