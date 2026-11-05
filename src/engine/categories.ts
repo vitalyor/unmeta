@@ -1,6 +1,6 @@
 // What the user can keep or remove. Order = order in the UI.
 export const CATEGORIES = [
-  'location', 'device', 'author', 'software', 'thumbnails', 'dates', 'descriptions', 'c2pa', 'filename',
+  'location', 'device', 'author', 'software', 'thumbnails', 'dates', 'descriptions', 'c2pa',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
@@ -8,8 +8,8 @@ export type PresetId = 'max' | 'balanced' | 'private';
 // Categories each preset KEEPS (everything else is removed). Orientation/ICC/video rotation are always kept.
 export const PRESETS: Record<PresetId, Category[]> = {
   max: [],
-  balanced: ['dates', 'descriptions', 'c2pa', 'filename'],
-  private: ['author', 'software', 'thumbnails', 'dates', 'descriptions', 'c2pa', 'filename'],
+  balanced: ['dates', 'descriptions', 'c2pa'],
+  private: ['author', 'software', 'thumbnails', 'dates', 'descriptions', 'c2pa'],
 };
 
 export interface Tag { group0: string; group1: string; group2: string; name: string; value: string }
@@ -25,7 +25,7 @@ const DATE = /(date|time)$/i;
 const ZERO_DATE = /^(0000:00:00 00:00:00|1980:01:01 00:00:00)/;
 
 /** Map one ExifTool tag to a user-facing category, or null if it reveals nothing (structure, codec, size). */
-export function classify(t: Tag): Exclude<Category, 'filename'> | null {
+export function classify(t: Tag): Category | null {
   // empty / zeroed fields reveal nothing
   if (!t.value.trim() || /^(n\/a|none|unknown|off|false|no)$/i.test(t.value.trim()) || (/^0( \(Unrated\))?$/.test(t.value) && /^Rating/.test(t.name)) || (/Serial/i.test(t.name) && /^[0\s]+$/.test(t.value))) return null;
   // cover art is content (we keep it, cleaned); ffmpeg labels the cover stream "Cover (front)"

@@ -4,6 +4,7 @@ import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg';
 import coreURL from '@ffmpeg/core?url';
 import wasmURL from '@ffmpeg/core/wasm?url';
 import { ext } from './detect';
+import { parseTags, avStreams, remuxArgs } from './av-args';
 
 import type { Category, Tag } from './categories';
 
@@ -42,28 +43,6 @@ export function loadAv(onProgress?: (done: number, total: number) => void): Prom
   })().catch((e) => { ffmpeg = null; throw e; }));
 }
 const load = () => loadAv();
-
-// Re-add values of kept categories (ffmpeg writes them as standard container tags).
-function keptTags(tags: Tag[], keep: Category[]): string[] {
-  const out: string[] = [];
-  const first = (re: RegExp, valid: (v: string) => boolean = () => true) => tags.find((t) => re.test(t.name) && valid(t.value))?.value;
-  const realDate = (v: string) => /^\d{4}:\d\d:\d\d/.test(v) && !v.startsWith('0000');
-  if (keep.includes('dates')) {
-    const d = first(/^(CreationDate|CreateDate|DateTimeOriginal|ContentCreateDate|Date)$/, realDate);
-    const tc = first(/^timecode$/);
-    if (tc) out.push('-timecode', tc);
-    if (d) out.push('-metadata', `creation_time=${d.replace(/^(\d{4}):(\d\d):(\d\d) /, '$1-$2-$3T').replace(/([+-]\d\d:\d\d|Z)?$/, (z) => z || 'Z')}`);
-  }
-  if (keep.includes('author')) {
-    const a = first(/^(Artist|Author|Creator)$/); if (a) out.push('-metadata', `artist=${a}`);
-    const c = first(/^Copyright$/); if (c) out.push('-metadata', `copyright=${c}`);
-  }
-  if (keep.includes('descriptions')) {
-    const t = first(/^Title$/); if (t) out.push('-metadata', `title=${t}`);
-    const c = first(/^(Comment|Description)$/); if (c) out.push('-metadata', `comment=${c}`);
-  }
-  return out;
-}
 
 // One ffmpeg instance, one job at a time; a crashed instance (e.g. "memory access out of bounds" on a
 // malformed file) is thrown away so it can't poison every following file.
@@ -137,31 +116,7 @@ export function probeAv(file: File): Promise<Tag[]> {
     return parseTags(log);
   });
 }
-function parseTags(log: string): Tag[] {
-  const tags: Tag[] = [];
-  let inMeta = false, indent = 0;
-  for (const raw of log.split('\n')) {
-    const lead = raw.length - raw.trimStart().length;
-    if (/^\s*Metadata:\s*$/.test(raw)) { inMeta = true; indent = lead; continue; }
-    if (!inMeta) continue;
-    const m = raw.match(/^\s*([^:]+?)\s*:\s?(.*)$/);
-    if (lead <= indent || !m) { inMeta = false; continue; }
-    tags.push({ group0: 'ffmpeg', group1: 'ffmpeg', group2: '', name: m[1], value: m[2].slice(0, 200) });
-  }
-  return tags;
-}
-// Output container follows what the file really is, not its name: an MP4 renamed to .mp3 stays an MP4.
-function muxer(log: string, e: string): string {
-  const demux = log.match(/Input #0, ([^,\s]+(?:,[^,\s]+)*), from/)?.[1] ?? '';
-  if (/^mov,mp4/.test(demux)) return /^(m4a|m4b|m4p)$/.test(e) ? 'ipod' : /^(3gp|3g2)$/.test(e) ? '3gp' : /^(mov|qt)$/.test(e) ? 'mov' : 'mp4';
-  if (/^matroska/.test(demux)) return e === 'webm' ? 'webm' : 'matroska';
-  const map: Record<string, string> = { mp3: 'mp3', flac: 'flac', ogg: 'ogg', wav: 'wav', avi: 'avi', asf: 'asf', mpegts: 'mpegts', aiff: 'aiff', aac: 'adts', mpeg: 'mpeg' };
-  return map[demux.split(',')[0]] ?? demux.split(',')[0];
-}
-const avStreams = (log: string) => [...log.matchAll(/Stream #0:(\d+)[^:]*: (Video|Audio): ([^\n]*)/g)].map((m) => ({ i: Number(m[1]), type: m[2], cover: /\(attached pic\)/.test(m[3]), codec: m[3].split(/[ ,]/)[0] }));
-
-/** Categories that can be kept for audio/video in v1. Others are removed even if the user kept them. */
-export const AV_KEEPABLE: Category[] = ['dates', 'author', 'descriptions', 'filename'];
+export { AV_KEEPABLE } from './av-args';
 
 export function cleanAv(file: File, tags: Tag[], keep: Category[], onProgress?: (p: number) => void,
   cleanCover?: (bytes: Uint8Array, name: string) => Promise<Uint8Array>): Promise<Blob> {
@@ -188,18 +143,7 @@ export function cleanAv(file: File, tags: Tag[], keep: Category[], onProgress?: 
           await f.writeFile(raw, clean);
           coverArgs.push(raw);
         }
-        const subs = /^(mkv|webm)$/.test(e) ? ['-map', '0:s?'] : []; // mp4/mov subtitle tracks are often drone/action-cam telemetry (GPS)
-        const maps = streams.filter((s) => !s.cover || !cleanCover).map((s) => ['-map', `0:${s.i}`]).flat(); // video + audio only (no data tracks: GoPro GPMF, DJI, iPhone mebx GPS)
-        const nMain = streams.filter((s) => s.type === 'Video' && (!s.cover || !cleanCover)).length;
-        const code = await f.exec([
-          '-i', path, ...coverArgs.flatMap((c) => ['-i', c]),
-          ...maps, ...subs, ...coverArgs.flatMap((_, k) => ['-map', `${k + 1}:0`]),
-          '-map_metadata', '-1', '-map_chapters', '-1', '-c', 'copy',
-          ...coverArgs.flatMap((_, k) => [`-disposition:v:${nMain + k}`, 'attached_pic']),
-          ...(e === 'mp3' ? ['-id3v2_version', '3'] : []),
-          '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact',
-          ...keptTags(tags, keep), '-f', muxer(log, e), out,
-        ]);
+        const code = await f.exec(remuxArgs({ input: path, log, ext: e, covers: cleanCover ? coverArgs : null, tags, keep, out }));
         if (code !== 0) throw new Error(`ffmpeg exit ${code}`);
         if (!avStreams(await info(f, out)).length) throw new Error('no-av-streams');
         const data = (await f.readFile(out)) as Uint8Array<ArrayBuffer>;

@@ -3,7 +3,6 @@
     "title": "Unmeta — remove hidden data from photos and files",
     "description": "Strip location, phone model, author name and other hidden data from photos, videos and documents. Right in your browser — your files never leave your device."
   },
-
   "start": {
     "title": "Your files say more than you think. Let’s fix that.",
     "subtitle": "Photos, videos and documents quietly record where they were taken, on what, by whom and when. We’ll show you what’s there and remove what shouldn’t be.",
@@ -32,7 +31,6 @@
     "whatIsHidden": "What hidden data?",
     "whatIsHiddenBody": "When you take a photo or save a file, your phone and apps quietly tuck extra details inside it — this is called metadata. It can include the exact spot where it was taken, your phone’s model and serial number, even your name. You can’t see it in the picture, but anyone who gets the file can read it."
   },
-
   "report": {
     "title": "What we found",
     "reading": "Taking a look inside…",
@@ -45,7 +43,6 @@
     "detailsHint": "Every field, exactly as it’s stored in the file. For the curious — you don’t need it to clean.",
     "detailsEmpty": "No fields"
   },
-
   "categories": {
     "location": {
       "name": "Location",
@@ -86,14 +83,8 @@
       "name": "Authenticity seals (C2PA)",
       "why": "A digital proof of origin: shows where a picture came from, but can carry your name and edit history.",
       "found": "{state, select, remove {Authenticity seal found — will be removed} other {Authenticity seal found — will stay in the file}}"
-    },
-    "filename": {
-      "name": "File name",
-      "why": "A name like “Emma_birthday_Brighton” says a lot on its own.",
-      "found": "{state, select, remove {We’ll rename it to something neutral: {neutral}} other {The name stays as it is}}"
     }
   },
-
   "modes": {
     "label": "Cleaning mode",
     "remembered": "We’ll remember this on this device",
@@ -117,7 +108,6 @@
       "toggleLabel": "Remove: {category}"
     }
   },
-
   "actions": {
     "clean": "Clean",
     "cleanCount": "Clean {count, plural, one {# file} other {# files}}",
@@ -136,7 +126,6 @@
     "retry": "Try again",
     "close": "Close"
   },
-
   "result": {
     "before": "Before",
     "after": "After",
@@ -150,7 +139,6 @@
     "newName": "New name: {name}",
     "originalSafe": "Your original is untouched — we never change it."
   },
-
   "batch": {
     "files": "{count, plural, one {# file} other {# files}}",
     "progress": "{done} of {total} done",
@@ -164,7 +152,6 @@
     "skipped": "{count, plural, one {Skipped # file} other {Skipped # files}} — we can’t clean that kind yet",
     "plainCount": "{count, plural, one {# text file has no hidden data} other {# text files have no hidden data}}"
   },
-
   "progress": {
     "reading": "Taking a look inside…",
     "cleaning": "Cleaning…",
@@ -177,32 +164,27 @@
     "loadingTool": "Loading the video and audio cleaner — just once, about {size}",
     "loadingToolHint": "This is the cleaning tool itself. Your files aren’t sent anywhere."
   },
-
   "plainText": {
     "title": "No hidden data inside",
     "body": "Text files have nowhere to hide details about you. Just check the text itself — we don’t touch it."
   },
-
   "unsupported": {
     "title": "We can’t clean this kind of file yet",
     "body": "We’d rather say so than promise it’s clean. Your file is untouched.",
     "format": "Format: {ext}",
     "tip": "Tip: save it in another format — a document as PDF, a photo as JPEG — and we can clean it."
   },
-
   "bigFile": {
     "title": "Big file — {size}",
     "body": "This device might run out of memory. Give it a try? If it doesn’t work, no harm done — your original stays safe.",
     "try": "Try it",
     "skip": "Not now"
   },
-
   "tooLarge": {
     "title": "This file is too big — {size}",
     "body": "Browsers can handle files up to {limit}, and this one is larger. That’s a browser limit, not something you did wrong.",
     "mobileHint": "Computers can handle more — try it there."
   },
-
   "errors": {
     "title": "That didn’t work",
     "generic": "Something went wrong. Try again — your original hasn’t changed.",
@@ -216,13 +198,11 @@
     "browserOld": "Your browser is too old for Unmeta. Update it or open the site in another browser.",
     "folderFailed": "We couldn’t read that folder. Choose the files inside it instead."
   },
-
   "empty": {
     "noFiles": "Nothing here yet",
     "noFilesHint": "Add some files and we’ll show you what’s hiding inside.",
     "allRemoved": "You’ve cleared the list"
   },
-
   "settings": {
     "language": "Language",
     "languageRu": "Русский",
@@ -232,14 +212,12 @@
     "themeDark": "Dark",
     "themeSystem": "Match system"
   },
-
   "footer": {
     "promise": "Your files never leave your device.",
     "privacy": "Privacy",
     "source": "Source code",
     "license": "Open source, AGPL-3.0"
   },
-
   "a11y": {
     "dropzone": "File drop area. Drop files here or press to choose.",
     "removeFile": "Remove {name} from the list",

@@ -9,7 +9,7 @@ const BYTE_SCAN_MAX = 512 * 1024 ** 2;
 /** Removed values (distinctive ones) that still occur anywhere in the output bytes. */
 async function bytesLeft(blob: Blob, before: Report, after: Report, keep: Category[]): Promise<Tag[]> {
   const kept = after.tags.map((t) => t.value).join('\n');
-  const cands = CATEGORIES.filter((c) => c !== 'filename' && !keep.includes(c)).flatMap((c) => before.found[c] ?? [])
+  const cands = CATEGORIES.filter((c) => !keep.includes(c)).flatMap((c) => before.found[c] ?? [])
     .filter((t) => t.value.length >= 8 && !/^[\d\s:.,+\-/()]+$/.test(t.value) && t.value !== '(binary)' && !kept.includes(t.value) && !/ \((image|file)\d*\.\w+\)$/.test(t.value));
   if (!cands.length) return [];
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -18,7 +18,7 @@ async function bytesLeft(blob: Blob, before: Report, after: Report, keep: Catego
 }
 import { cleanAv, probeAv, AV_KEEPABLE } from './av';
 import { indexOfBytes } from './skeleton';
-import type { Req, Res } from './engine.worker';
+import type { Job, Res } from './core';
 
 export { CATEGORIES, PRESETS, type Category, type PresetId, type Tag } from './categories';
 export type { Kind } from './detect';
@@ -39,8 +39,11 @@ const RECYCLE_BYTES = 1024 ** 3;
 let worker: Worker | null = null;
 let seq = 0, fed = 0;
 const pending = new Map<number, (r: Res) => void>();
-type Body = Req extends infer R ? (R extends Req ? Omit<R, 'id'> : never) : never; // Omit per union member
-function call(msg: Body): Promise<Res> {
+let local: ((job: Job) => Promise<Res>) | null = null;
+/** Run jobs in-process instead of in a Web Worker (the server: Node has no Worker for this). */
+export function setEngine(fn: (job: Job) => Promise<Res>) { local = fn; }
+function call(msg: Job): Promise<Res> {
+  if (local) return local(msg);
   if (worker && fed > RECYCLE_BYTES && !pending.size) { worker.terminate(); worker = null; fed = 0; }
   fed += 'file' in msg ? msg.file.size : 0;
   worker ??= Object.assign(new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' }), {
@@ -91,23 +94,22 @@ async function cleanRaw(file: File, name: string, before: Report, removed: (r: R
   return { blob, name, before, after: report, notes };
 }
 
-export function cleanName(name: string, keep: Category[], neutral: string): string {
-  const e = ext(name);
-  const base = keep.includes('filename') ? (e ? name.slice(0, -(e.length + 1)) : name) : neutral;
-  return `${base}_clean${e ? '.' + e : ''}`;
+/** The cleaned file keeps its name, plus a suffix: originals are never overwritten. */
+export function cleanName(name: string): string {
+  const i = ext(name) ? name.lastIndexOf('.') : name.length; // the extension stays exactly as it was (.MOV stays .MOV)
+  return `${name.slice(0, i)}_clean${name.slice(i)}`;
 }
 
 /**
- * Clean `file`, keeping only categories in `keep`. `neutral` = name used when the filename is not kept
- * (e.g. "photo_01"). Always re-reads the output: if anything removable survived, it throws instead of
+ * Clean `file`, keeping only categories in `keep`. Always re-reads the output: if anything removable survived, it throws instead of
  * pretending the file is clean.
  */
-export async function clean(file: File, keep: Category[], neutral: string, onProgress?: (p: number) => void): Promise<Cleaned> {
+export async function clean(file: File, keep: Category[], onProgress?: (p: number) => void): Promise<Cleaned> {
   const before = await inspect(file);
   if (before.kind === 'unsupported') throw new Error('unsupported');
   const notes: string[] = [];
-  const name = cleanName(file.name, keep, neutral);
-  const removed = (r: Report) => CATEGORIES.filter((c) => c !== 'filename' && !keep.includes(c) && r.found[c]?.length);
+  const name = cleanName(file.name);
+  const removed = (r: Report) => CATEGORIES.filter((c) => !keep.includes(c) && r.found[c]?.length);
   if (before.kind === 'raw') return cleanRaw(file, name, before, removed, notes);
   let blob: Blob;
   if (before.kind === 'av') {
@@ -123,7 +125,8 @@ export async function clean(file: File, keep: Category[], neutral: string, onPro
     if (r.error) throw new Error(r.error);
     blob = new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: file.type });
   }
-  const after = await inspect(new File([blob], name, { type: file.type }), before.kind);
+  // a File stays as is: on the server it is the cleaned file on disk, and wrapping it would lose its path
+  const after = await inspect(blob instanceof File ? blob : new File([blob], name, { type: file.type }), before.kind);
   // Byte-level check for pictures: every removed value must be gone from the whole file, not only from what
   // ExifTool parses (PSD smart objects embed whole documents with their own XMP; ExifTool doesn't see them).
   if (before.kind === 'image' && blob.size <= BYTE_SCAN_MAX) {

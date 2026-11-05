@@ -3,6 +3,7 @@ import { commands } from 'vitest/browser';
 import { unzipSync, unzlibSync } from 'fflate';
 import { inspect, clean, cleanName, PRESETS, type Category } from '../src/engine';
 import { classify } from '../src/engine/categories';
+import { EXPECT, CYRILLIC } from './expect';
 
 declare module 'vitest/browser' {
   interface BrowserCommands { decodes: (name: string, b64: string) => Promise<string> }
@@ -26,29 +27,6 @@ async function deepText(blob: Blob): Promise<string> {
 const latin1 = (b: Uint8Array) => { let s = ''; for (let i = 0; i < b.length; i += 65536) s += String.fromCharCode(...b.subarray(i, i + 65536)); return s; };
 const b64 = async (blob: Blob) => { const s = latin1(new Uint8Array(await blob.arrayBuffer())); return btoa(s); };
 
-// file → categories that MUST be detected before cleaning
-const EXPECT: Record<string, Category[]> = {
-  'photo.jpg': ['location', 'device', 'author', 'software', 'thumbnails', 'dates', 'descriptions'],
-  'photo.png': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
-  'photo-big.jpg': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
-  'photo-big.png': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
-  'photo.tif': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
-  'photo.heic': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
-  'photo.gif': ['author'],
-  'video.mp4': ['location', 'device', 'author', 'dates'],
-  'video.mov': ['location', 'device', 'author', 'dates'],
-  'video.mkv': ['author', 'dates', 'descriptions'],
-  'video.webm': ['author', 'dates', 'descriptions'],
-  'video.avi': ['author', 'descriptions'],
-  'audio.mp3': ['author', 'descriptions'],
-  'audio.flac': ['author', 'descriptions'],
-  'audio.wav': ['author', 'descriptions'],
-  'audio.opus': ['author', 'descriptions'],
-  'audio.m4a': ['author', 'dates', 'descriptions'],
-  'doc.pdf': ['author', 'software', 'dates', 'descriptions'],
-  'doc.docx': ['author', 'software', 'dates', 'descriptions'],
-  'doc.odt': ['author', 'software', 'dates', 'descriptions'],
-};
 
 describe('maximum preset removes every planted secret and keeps files valid', () => {
   for (const [name, cats] of Object.entries(EXPECT)) {
@@ -58,7 +36,7 @@ describe('maximum preset removes every planted secret and keeps files valid', ()
       for (const c of cats) expect(before.found[c], `${name}: ${c} detected`).toBeTruthy();
 
       const t = performance.now();
-      const r = await clean(file, PRESETS.max, 'file_01');
+      const r = await clean(file, PRESETS.max);
       const ms = performance.now() - t;
       expect(r.after.found).toEqual({});
       const text = await deepText(r.blob);
@@ -73,42 +51,55 @@ describe('maximum preset removes every planted secret and keeps files valid', ()
 
 describe('presets keep what they promise', () => {
   it('balanced keeps dates and descriptions in a photo, removes the rest', async () => {
-    const r = await clean(await load('photo.jpg'), PRESETS.balanced, 'x');
+    const r = await clean(await load('photo.jpg'), PRESETS.balanced);
     expect(Object.keys(r.after.found).sort()).toEqual(['dates', 'descriptions']);
   });
   it('private-only keeps author/software/thumbnails/dates/descriptions, removes location and device', async () => {
-    const r = await clean(await load('photo.jpg'), PRESETS.private, 'x');
+    const r = await clean(await load('photo.jpg'), PRESETS.private);
     expect(r.after.found.location).toBeUndefined();
     expect(r.after.found.device).toBeUndefined();
     expect(r.after.found.author).toBeTruthy();
     expect(r.after.found.thumbnails).toBeTruthy();
   });
   it('keeping only location in a docx still removes the author', async () => {
-    const r = await clean(await load('doc.docx'), ['location'], 'x');
+    const r = await clean(await load('doc.docx'), ['location']);
     expect((await deepText(r.blob)).includes('Ivan Petrov')).toBe(false);
   });
 });
 
 describe('other kinds', () => {
   it('svg: editor metadata, comments, file paths removed', async () => {
-    const r = await clean(await load('drawing.svg'), PRESETS.max, 'x');
+    const r = await clean(await load('drawing.svg'), PRESETS.max);
     const s = await r.blob.text();
     expect(s).not.toMatch(/UNMETASECRET|Ivan|inkscape:|sodipodi:/);
     expect(s).toMatch(/<rect/);
   });
   it('text: nothing embedded, returned as is', async () => {
-    const r = await clean(await load('notes.txt'), PRESETS.max, 'x');
+    const r = await clean(await load('notes.txt'), PRESETS.max);
     expect(await r.blob.text()).toBe('just some text\n');
     expect(r.before.found).toEqual({});
   });
   it('unknown format is refused, never "cleaned"', async () => {
-    await expect(clean(await load('scene.blend'), PRESETS.max, 'x')).rejects.toThrow('unsupported');
+    await expect(clean(await load('scene.blend'), PRESETS.max)).rejects.toThrow('unsupported');
   });
-  it('names: suffix always, neutral name when filename is not kept', () => {
-    expect(cleanName('IMG_2025.jpg', [], 'photo_01')).toBe('photo_01_clean.jpg');
-    expect(cleanName('IMG_2025.jpg', ['filename'], 'photo_01')).toBe('IMG_2025_clean.jpg');
-    expect(cleanName('README', ['filename'], 'file_01')).toBe('README_clean');
+  it('names: the original name plus a suffix, never renamed', () => {
+    expect(cleanName('IMG_2025.jpg')).toBe('IMG_2025_clean.jpg');
+    expect(cleanName('Отпуск у мамы.final.MOV')).toBe('Отпуск у мамы.final_clean.MOV');
+    expect(cleanName('README')).toBe('README_clean');
   });
+});
+
+describe('non-Latin text', () => {
+  for (const [name, author] of Object.entries(CYRILLIC)) {
+    it(`${name}: author shown as written, then removed`, async () => {
+      const f = await load(name);
+      const r = await inspect(f);
+      expect(r.found.author?.map((t) => t.value)).toContain(author);
+      const c = await clean(f, PRESETS.max);
+      expect(c.after.found).toEqual({});
+      expect(new TextDecoder().decode(await c.blob.arrayBuffer())).not.toContain(author);
+    }, 60_000);
+  }
 });
 
 describe('classify', () => {
@@ -127,7 +118,7 @@ describe('concurrency', () => {
     expect(Object.keys(reports[2].found)).toContain('location');
     expect(Object.keys(reports[3].found)).toContain('author');
     expect(Object.keys(reports[4].found)).toContain('location');
-    const cleaned = await Promise.all([clean(files[0], PRESETS.max, 'a'), clean(files[2], PRESETS.max, 'b'), clean(files[4], PRESETS.max, 'c')]);
+    const cleaned = await Promise.all([clean(files[0], PRESETS.max), clean(files[2], PRESETS.max), clean(files[4], PRESETS.max)]);
     for (const c of cleaned) expect(c.after.found).toEqual({});
   });
 });

@@ -9,7 +9,7 @@
   import { app, item, cleanCurrent, home } from '../store.svelte';
   import { CATEGORIES } from '../../engine';
   const it = $derived(item()!);
-  const count = $derived(CATEGORIES.filter((c) => c === 'filename' || it.report?.found[c]?.length).length);
+  const count = $derived(CATEGORIES.filter((c) => it.report?.found[c]?.length).length);
 </script>
 
 {#snippet cleanBtn(cls: string)}

@@ -7,7 +7,7 @@ import { skeleton } from './skeleton.ts';
 const SKELETON_FROM = 1024 * 1024; // smaller files are fast either way
 
 // Tags restored after "delete everything", per kept category (family-2 groups where ExifTool has them).
-const RESTORE: Record<Exclude<Category, 'filename'>, string[]> = {
+const RESTORE: Record<Category, string[]> = {
   location: ['Location:all'],
   device: ['Camera:all', 'Device:all', 'MakerNotes:all'],
   author: ['Author:all'],
@@ -44,6 +44,7 @@ sub um_read {
     next if ($g[0] =~ /^(ExifTool|File|Composite)$/ or $g[1] eq 'System') and $key ne 'Rotation';
     my $v = $info->{$key};
     $v = ref $v eq 'SCALAR' ? '(binary)' : ref $v eq 'ARRAY' ? join(', ', @$v) : $v;
+    utf8::decode($v); # ExifTool returns UTF-8 bytes; JSON->utf8 would encode them a second time (Cyrillic came out as "Ð Ð»Ð¸")
     (my $name = $key) =~ s/ \(\d+\)$//;
     push @tags, { group0 => $g[0], group1 => $g[1], group2 => $g[2], name => $name, value => substr("$v", 0, 200) };
   }
@@ -158,14 +159,13 @@ export class Perl {
   }
   private async clean1(name: string, data: Blob | Uint8Array, mode: 'image' | 'tiff', keep: Category[]): Promise<Uint8Array> {
     const src = this.path(name), dst = this.path('out_' + name);
-    const kept = keep.filter((c): c is Exclude<Category, 'filename'> => c !== 'filename');
     // Photoshop resources survive "delete all" in PSD files (the format needs some of them)
-    const del = [...(mode === 'tiff' ? TIFF_IFD0 : []), ...(kept.includes('author') ? [] : ['Photoshop:URL', 'Photoshop:CopyrightFlag']),
-      ...(kept.includes('thumbnails') ? [] : ['Photoshop:PhotoshopThumbnail']), ...(kept.includes('dates') ? [] : ['Photoshop:LayerModifyDates'])];
-    const restore = [...ALWAYS_KEEP, ...kept.flatMap((c) => RESTORE[c])];
+    const del = [...(mode === 'tiff' ? TIFF_IFD0 : []), ...(keep.includes('author') ? [] : ['Photoshop:URL', 'Photoshop:CopyrightFlag']),
+      ...(keep.includes('thumbnails') ? [] : ['Photoshop:PhotoshopThumbnail']), ...(keep.includes('dates') ? [] : ['Photoshop:LayerModifyDates'])];
+    const restore = [...ALWAYS_KEEP, ...keep.flatMap((c) => RESTORE[c])];
     this.fs.addFile(src, data);
     try {
-      const excl = kept.includes('c2pa') ? ['JUMBF'] : [];
+      const excl = keep.includes('c2pa') ? ['JUMBF'] : [];
       const e = await this.call(`print main::um_clean(${q(src)}, ${q(dst)}, ${q(mode)}, ${q(del.join(','))}, ${q(restore.join(','))}, ${q(excl.join(','))});`);
       if (e) throw new Error(e);
       return await this.output(dst);

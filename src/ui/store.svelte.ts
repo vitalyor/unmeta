@@ -17,7 +17,7 @@ export const MODE_ICON: Record<ModeId, string> = { maximum: 'shield', balanced: 
 
 export type ItemStatus = 'reading' | 'ready' | 'nothing' | 'plain' | 'unsupported' | 'big' | 'tooLarge' | 'cleaning' | 'done' | 'error';
 export interface Item {
-  id: number; file: File; kind: Kind; url: string; video: boolean; neutral: string;
+  id: number; file: File; kind: Kind; url: string; video: boolean;
   status: ItemStatus; report?: Report; result?: Cleaned; error?: string; saved: boolean;
 }
 type Screen = 'start' | 'loading' | 'report' | 'after' | 'batch' | 'msg' | 'privacy';
@@ -60,17 +60,14 @@ export function toast(msg: string) { app.toast = msg; app.toastKey++; }
 
 // ---------- intake ----------
 const PREVIEW = /^image\/(jpeg|png|webp|gif|avif|heic|heif|bmp)$/;
-const NEUTRAL: Partial<Record<Kind, string>> = { image: 'photo', raw: 'photo', av: 'video', pdf: 'document', office: 'document', svg: 'image', text: 'text' };
 let seq = 0;
 
-async function makeItem(file: File, n: number): Promise<Item> {
+async function makeItem(file: File): Promise<Item> {
   const kind = await kindOf(file);
   const video = file.type.startsWith('video/') || (kind === 'av' && /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(file.name));
-  const base = kind === 'av' && !video ? 'audio' : NEUTRAL[kind] ?? 'file';
   return {
     id: ++seq, file, kind, video, saved: false, status: 'reading',
     url: PREVIEW.test(file.type) || video ? URL.createObjectURL(file) : '',
-    neutral: `${base}_${String(n).padStart(2, '0')}`,
   };
 }
 
@@ -83,7 +80,7 @@ export async function addFiles(files: File[]) {
   if (!files.length) return;
   const f = ++flow;
   for (const it of app.items) if (it.url) URL.revokeObjectURL(it.url);
-  const items = await Promise.all(files.map((file, i) => makeItem(file, i + 1)));
+  const items = await Promise.all(files.map((file) => makeItem(file)));
   if (stale(f)) return;
   app.items = items; app.current = 0; app.view = 'after';
   if (items.length === 1) return single(items[0], f);
@@ -146,7 +143,7 @@ async function read(it: Item) {
 async function cleanItem(it: Item, onProgress?: (p: number) => void) {
   it.status = 'cleaning';
   try {
-    it.result = await clean(it.file, keepSet(), it.neutral, onProgress);
+    it.result = await clean(it.file, keepSet(), onProgress);
     it.status = 'done'; it.saved = false;
   } catch (e) { const m = String(e instanceof Error ? e.message : e); it.status = CANT.test(m) ? 'unsupported' : 'error'; it.error = m; }
 }
