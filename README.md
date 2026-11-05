@@ -16,7 +16,7 @@ Built with Svelte, ExifTool (in WebAssembly via zeroperl), ffmpeg.wasm and pdf-l
 npm ci
 npm run dev     # http://localhost:5173
 npm test        # engine tests in Chromium and WebKit
-node test/e2e.mjs http://localhost:4173/unmeta/ chromium   # end-to-end, after `BASE=/unmeta/ npm run build && npx vite preview --base /unmeta/`
+node test/e2e.mjs http://localhost:4173/ chromium   # end-to-end, after `npm run build && npx vite preview`
 ```
 
 Requires Node ≥ 26.12.1.
