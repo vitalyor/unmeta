@@ -50,6 +50,8 @@ function keptTags(tags: Tag[], keep: Category[]): string[] {
   const realDate = (v: string) => /^\d{4}:\d\d:\d\d/.test(v) && !v.startsWith('0000');
   if (keep.includes('dates')) {
     const d = first(/^(CreationDate|CreateDate|DateTimeOriginal|ContentCreateDate|Date)$/, realDate);
+    const tc = first(/^timecode$/);
+    if (tc) out.push('-timecode', tc);
     if (d) out.push('-metadata', `creation_time=${d.replace(/^(\d{4}):(\d\d):(\d\d) /, '$1-$2-$3T').replace(/([+-]\d\d:\d\d|Z)?$/, (z) => z || 'Z')}`);
   }
   if (keep.includes('author')) {

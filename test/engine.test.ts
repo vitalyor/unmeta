@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import { unzipSync, unzlibSync } from 'fflate';
 import { inspect, clean, cleanName, PRESETS, type Category } from '../src/engine';
+import { classify } from '../src/engine/categories';
 
 declare module 'vitest/browser' {
   interface BrowserCommands { decodes: (name: string, b64: string) => Promise<string> }
@@ -107,6 +108,14 @@ describe('other kinds', () => {
     expect(cleanName('IMG_2025.jpg', [], 'photo_01')).toBe('photo_01_clean.jpg');
     expect(cleanName('IMG_2025.jpg', ['filename'], 'photo_01')).toBe('IMG_2025_clean.jpg');
     expect(cleanName('README', ['filename'], 'file_01')).toBe('README_clean');
+  });
+});
+
+describe('classify', () => {
+  it('video timecode can be time of day: a date, unless zero', () => {
+    const tc = (value: string) => classify({ group0: 'ffmpeg', group1: 'ffmpeg', group2: '', name: 'timecode', value });
+    expect(tc('00:56:18:12')).toBe('dates');
+    expect(tc('00:00:00:00')).toBeNull();
   });
 });
 

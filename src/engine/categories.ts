@@ -52,6 +52,8 @@ export function classify(t: Tag): Exclude<Category, 'filename'> | null {
   if (AUTHOR.test(t.name)) return 'author';
   if (LOCATION.test(t.name)) return 'location';
   if (DEVICE.test(t.name)) return 'device';
+  // camera timecode is often time-of-day: it tells when the clip was shot
+  if (t.group0 === 'ffmpeg' && t.name === 'timecode') return /^00:00:00[:;.]00$/.test(t.value) ? null : 'dates';
   if (t.group0 === 'ffmpeg' || t.group0 === 'Office') {
     if (DATE.test(t.name) && !/duration/i.test(t.name)) return ZERO_DATE.test(t.value) || /^1970-01-01T00:00:00/.test(t.value) ? null : 'dates';
   }
