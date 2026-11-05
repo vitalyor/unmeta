@@ -1,4 +1,4 @@
-// Unmeta Telegram bot. Private chat: send a file → the same file without metadata. Group: buttons under each file, or /clean and /meta as a reply.
+// Unmeta Telegram bot, for groups only (private chats are ignored): buttons under each file, or /clean and /meta as a reply.
 // Talks to a local Bot API server (files up to 2 GB, read and sent by path). Keeps nothing but each user's mode.
 import { readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ const MAX_IN_MEMORY = 300 * 1024 ** 2; // photos and documents are cleaned in me
 // ---------- texts ----------
 const T = {
   ru: {
-    start: 'Пришлите файл — фото, видео, аудио, PDF или документ — и я верну его без скрытых данных: геопозиции, модели телефона, дат, автора, истории правок.\n\nОтправляйте как <b>файл</b>, а не как фото: так Telegram не пережмёт его.\n\nВ группе под файлом появятся кнопки. Ещё можно ответить на сообщение с файлом командой <code>/clean</code> (очистить) или <code>/meta</code> (посмотреть, что внутри).\n\nРежим очистки: /mode\n\nФайл скачивается на сервер бота только когда вы просите, и удаляется сразу после ответа. Другие сообщения группы бот не читает и не хранит. Если нужно, чтобы файл совсем не покидал устройство, — сайт: https://unmeta.nolim.cloud',
+    start: 'Отправьте в группу файл — фото, видео, аудио, PDF или документ — и я верну его без скрытых данных: геопозиции, модели телефона, дат, автора, истории правок.\n\nОтправляйте как <b>файл</b>, а не как фото: так Telegram не пережмёт его.\n\nПод файлом появятся кнопки. Ещё можно ответить на сообщение с файлом командой <code>/clean</code> (очистить) или <code>/meta</code> (посмотреть, что внутри).\n\nРежим очистки: /mode\n\nФайл скачивается на сервер бота только когда вы просите, и удаляется сразу после ответа. Другие сообщения группы бот не читает и не хранит. Если нужно, чтобы файл совсем не покидал устройство, — сайт: https://unmeta.nolim.cloud',
     mode: 'Режим очистки сейчас: <b>{mode}</b>. Выберите:',
     modeSet: 'Режим: <b>{mode}</b>',
     queued: 'В очереди, перед вами: {n}',
@@ -46,7 +46,7 @@ const T = {
     gone: 'Сообщение с файлом уже удалено.',
   },
   en: {
-    start: 'Send me a file — photo, video, audio, PDF or document — and I will return it without hidden data: location, phone model, dates, author, edit history.\n\nSend it as a <b>file</b>, not as a photo, so Telegram does not recompress it.\n\nIn a group, buttons appear under each file. You can also reply to a file with <code>/clean</code> (clean it) or <code>/meta</code> (see what is inside).\n\nCleaning mode: /mode\n\nA file reaches the bot\'s server only when you ask, and is deleted right after the reply. The bot neither reads nor keeps other group messages. If the file must never leave your device, use the site: https://unmeta.nolim.cloud',
+    start: 'Send a file to the group — photo, video, audio, PDF or document — and I will return it without hidden data: location, phone model, dates, author, edit history.\n\nSend it as a <b>file</b>, not as a photo, so Telegram does not recompress it.\n\nButtons appear under each file. You can also reply to a file with <code>/clean</code> (clean it) or <code>/meta</code> (see what is inside).\n\nCleaning mode: /mode\n\nA file reaches the bot\'s server only when you ask, and is deleted right after the reply. The bot neither reads nor keeps other group messages. If the file must never leave your device, use the site: https://unmeta.nolim.cloud',
     mode: 'Cleaning mode now: <b>{mode}</b>. Choose:',
     modeSet: 'Mode: <b>{mode}</b>',
     queued: 'Queued, ahead of you: {n}',
@@ -197,24 +197,25 @@ const modeKeyboard = (l: Lang, cur: PresetId) => ({
 let me = '';
 
 async function onMessage(m: any) {
+  if (m.chat.type === 'private') return; // groups only
   const chat = m.chat.id, l = lang(m.from), user = m.from?.id ?? chat;
   const text: string = m.text ?? m.caption ?? '';
   const cmd = text.match(/^\/(\w+)(@\w+)?/);
   if (cmd?.[2] && cmd[2].slice(1).toLowerCase() !== me.toLowerCase()) return; // a command for another bot
-  const group = m.chat.type !== 'private';
   if (cmd?.[1] === 'start' || cmd?.[1] === 'help') return void await say(chat, T[l].start);
   if (cmd?.[1] === 'mode') return void await say(chat, fmt(T[l].mode, { mode: modeName(l, modeOf(user)) }), m.message_id, { reply_markup: modeKeyboard(l, modeOf(user)) });
   const action = cmd?.[1] === 'clean' || cmd?.[1] === 'meta' ? cmd[1] : null;
-  if (group && !action) { // privacy mode off: every group message lands here, and only a file's name and type are looked at
+  if (!action) { // privacy mode off: every group message lands here, and only a file's name and type are looked at
     if (offerable(m)) await say(chat, fmt(T[l].offer, { name: esc(mediaOf(m)!.name) }), m.message_id, { reply_markup: offerKeyboard(l) });
     return;
   }
   const own = mediaOf(m), item = own ?? (m.reply_to_message ? mediaOf(m.reply_to_message) : null);
-  if (!item) return void await say(chat, group || action ? T[l].replyToFile : T[l].start, m.message_id);
-  enqueue({ action: action ?? 'clean', chat, reply: own ? m.message_id : m.reply_to_message.message_id, l, user, item });
+  if (!item) return void await say(chat, T[l].replyToFile, m.message_id);
+  enqueue({ action, chat, reply: own ? m.message_id : m.reply_to_message.message_id, l, user, item });
 }
 
 async function onCallback(q: any) {
+  if (q.message?.chat.type === 'private') return void await tg('answerCallbackQuery', { callback_query_id: q.id }); // groups only
   const l = lang(q.from);
   const [kind, value] = String(q.data ?? '').split(':');
   if (kind === 'file' && (value === 'clean' || value === 'meta' || value === 'all')) {
@@ -234,13 +235,14 @@ async function main() {
   if (!TOKEN) throw new Error('BOT_TOKEN is not set');
   await sweep(); // left by a crash or a restart
   me = (await tg<{ username: string }>('getMe')).username;
-  for (const [l, scope] of [['ru', 'ru'], ['en', '']] as const) {
-    await tg('setMyCommands', { commands: [
+  await tg('deleteMyCommands'); // the list once shown in private chats
+  for (const [l, code] of [['ru', 'ru'], ['en', '']] as const) {
+    await tg('setMyCommands', { scope: { type: 'all_group_chats' }, commands: [
       { command: 'start', description: l === 'ru' ? 'Как пользоваться' : 'How to use' },
       { command: 'mode', description: l === 'ru' ? 'Режим очистки' : 'Cleaning mode' },
       { command: 'clean', description: l === 'ru' ? 'Очистить файл (ответом на сообщение)' : 'Clean a file (as a reply)' },
       { command: 'meta', description: l === 'ru' ? 'Показать метаданные (ответом на сообщение)' : 'Show metadata (as a reply)' },
-    ], ...(scope ? { language_code: scope } : {}) });
+    ], ...(code ? { language_code: code } : {}) });
   }
   console.log(`@${me} ready`);
   for (let offset = 0; ;) {

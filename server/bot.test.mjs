@@ -162,16 +162,20 @@ test('group: /clean without a file asks for one; a deleted file message is expla
   await until(() => of('answerCallbackQuery').some((c) => /удалено/.test(c.text)));
 });
 
-test('private chat: a file is cleaned right away, no buttons', async () => {
+test('private chat: complete silence', async () => {
   calls = [];
   send({ message: doc('photo-cyrillic.jpg', DM) });
-  await until(() => of('sendDocument')[0]);
-  assert.ok(!calls.some((c) => c.reply_markup));
+  send({ message: { message_id: ++ids, chat: DM, from: USER, text: '/start' } });
+  send({ message: { message_id: ++ids, chat: DM, from: USER, text: '/clean', reply_to_message: doc('photo.jpg', DM) } });
+  send({ message: { message_id: ++ids, chat: DM, from: USER, text: 'привет' } });
+  press('file:clean', doc('photo.jpg', DM), DM);
+  await settle(); await settle();
+  assert.deepEqual(calls.map((c) => c.method).filter((m) => m !== 'answerCallbackQuery'), []);
 });
 
 test('a failed job still cleans up and says so', async () => {
   calls = [];
-  send({ message: doc('scene.blend', DM) });
+  press('file:clean', doc('scene.blend'));
   await until(() => of('sendMessage').some((c) => /не умею чистить/.test(c.text)));
   await settle();
   assert.deepEqual((await readdir(join(tmp, 'work'))).filter((n) => n.startsWith('job-')), []);
