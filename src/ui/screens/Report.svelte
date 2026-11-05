@@ -6,7 +6,7 @@
   import Modes from '../parts/Modes.svelte';
   import ModeChip from '../parts/ModeChip.svelte';
   import { t, size } from '../i18n.svelte';
-  import { app, item, cleanCurrent } from '../store.svelte';
+  import { app, item, cleanCurrent, home } from '../store.svelte';
   import { CATEGORIES } from '../../engine';
   const it = $derived(item()!);
   const count = $derived(CATEGORIES.filter((c) => c === 'filename' || it.report?.found[c]?.length).length);
@@ -27,6 +27,7 @@
     <p class="summary">{t('report.summary', { count })}</p>
     <Modes />
     <div class="act-row"><ModeChip />{@render cleanBtn('')}</div>
+    <button type="button" class="link-btn other-file" onclick={home} disabled={app.cleaning}><Icon name="x" cls="inline" />{t('actions.chooseOther')}</button>
     <div class="card list">
       <Finds {it} phase="report" />
       <p class="kept-always"><Icon name="info" />{t('report.alwaysKept')}</p>

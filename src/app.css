@@ -527,3 +527,25 @@ video.thumb-art { width: 100%; height: 100%; object-fit: cover; display: block; 
 .prose p, .prose li { max-width: 62ch; }
 .prose a { color: var(--accent); }
 .prose code { font-size: .9em; background: var(--surface-2); padding: 1px 5px; border-radius: 6px; }
+/* cancel / remove */
+.other-file { color: var(--muted); margin: -14px 0 18px; }
+.tile .tile-remove { position: absolute; top: 8px; right: 8px; bottom: auto; width: 36px; height: 36px; background: rgba(0, 0, 0, .45); color: #fff; box-shadow: none; }
+.batch-links { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 14px; }
+.batch-links .link-btn { color: var(--accent); }
+.batch-links .link-btn + .link-btn { color: var(--muted); }
+.s-batch .add { margin-top: 0; }
+/* drag & drop: full-window target instead of nudging the sample photo */
+body.dragging .stage { transform: none; }
+body.dragging .stage::after { opacity: 0; }
+.drop-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: var(--gutter); pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 78%, transparent); animation: fade .18s ease both; }
+.drop-card { width: min(100%, 640px); aspect-ratio: 16 / 9; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 32px;
+  border: 2.5px dashed var(--accent); border-radius: var(--r-card); background: var(--surface); box-shadow: var(--shadow-photo);
+  animation: drop-in .32s var(--ease-out) both; }
+.drop-icon { width: 72px; height: 72px; border-radius: 22px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); margin-bottom: 6px; }
+.drop-icon .ic { width: 34px; height: 34px; animation: drop-bob 1.2s var(--ease) infinite alternate; }
+.drop-title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.4rem); letter-spacing: -.02em; }
+.drop-sub { margin: 0; color: var(--muted); }
+.drop-note { margin: 8px 0 0; display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: var(--fs-small); }
+@keyframes drop-in { from { transform: scale(.96); opacity: 0; } }
+@keyframes drop-bob { to { transform: translateY(-4px); } }

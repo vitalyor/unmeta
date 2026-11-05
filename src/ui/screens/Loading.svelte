@@ -2,7 +2,7 @@
   // First audio/video file: the video tool (~10 MB) downloads once, with real progress.
   import Thumb from '../parts/Thumb.svelte';
   import { t, size } from '../i18n.svelte';
-  import { app, item } from '../store.svelte';
+  import { app, item, home } from '../store.svelte';
   const it = $derived(item());
   const total = $derived(app.loadTotal || 32_232_419);
   const p = $derived(app.loadTotal ? app.loadDone / app.loadTotal : 0);
@@ -21,5 +21,6 @@
       <div class="bp-track"><div class="bp-fill" style="--p:{p}"></div></div>
       <div class="bp-nums"><span class="bp-pct">{t('progress.percent', { percent: pct })}</span><span class="bp-left">{t('progress.of', { done: size(app.loadDone), total: size(total) })}</span></div>
     </div>
+    <div class="msg-act"><button type="button" class="btn btn-quiet" onclick={home}><span>{t('actions.cancel')}</span></button></div>
   </div>
 </section>

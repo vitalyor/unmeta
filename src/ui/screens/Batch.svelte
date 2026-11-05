@@ -4,7 +4,7 @@
   import Modes from '../parts/Modes.svelte';
   import ModeChip from '../parts/ModeChip.svelte';
   import { t, size } from '../i18n.svelte';
-  import { app, cleanBatch, saveAll, save, openItem, mobile } from '../store.svelte';
+  import { app, cleanBatch, saveAll, save, openItem, mobile, removeItem, home } from '../store.svelte';
   import { CATEGORIES } from '../../engine';
   let { pick }: { pick: () => void } = $props();
   const phone = mobile();
@@ -50,6 +50,9 @@
             <Thumb {it} />
             {#if it.video && it.url}<span class="play" aria-hidden="true"></span>{/if}
             {#if it.status === 'cleaning' || it.status === 'reading'}<span class="bar"><span class="bar-fill indeterminate"></span></span>{/if}
+            {#if app.batchPhase === 'found'}
+              <button type="button" class="icon-btn tile-remove" aria-label={t('a11y.removeFile', { name: it.file.name })} onclick={() => removeItem(it.id)}><Icon name="x" /></button>
+            {/if}
             {#if it.status === 'done'}
               <button type="button" class="icon-btn" aria-label="{t('actions.download')} {it.file.name}" onclick={() => save(it)}><Icon name={it.saved ? 'check' : phone ? 'share' : 'download'} /></button>
             {/if}
@@ -69,7 +72,10 @@
         </li>
       {/each}
     </ul>
-    <button type="button" class="link-btn add" onclick={pick}><Icon name="plus" />{t('actions.addMore')}</button>
+    <div class="batch-links">
+      <button type="button" class="link-btn add" onclick={pick}><Icon name="plus" />{t('actions.addMore')}</button>
+      {#if app.batchPhase !== 'cleaning'}<button type="button" class="link-btn" onclick={home}><Icon name="x" cls="inline" />{app.batchPhase === 'done' ? t('actions.startOver') : t('actions.cancel')}</button>{/if}
+    </div>
   </div>
   <div class="pane pane-act">
     {#if app.batchPhase === 'found'}<Modes /><ModeChip />{/if}

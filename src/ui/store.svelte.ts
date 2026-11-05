@@ -74,24 +74,40 @@ async function makeItem(file: File, n: number): Promise<Item> {
   };
 }
 
+// Every user "go back / start over" bumps the flow; async work that finishes later checks it and stays quiet
+// (otherwise a cancelled report would jump back on screen when its read completes).
+let flow = 0;
+const stale = (f: number) => f !== flow;
+
 export async function addFiles(files: File[]) {
   if (!files.length) return;
+  const f = ++flow;
   for (const it of app.items) if (it.url) URL.revokeObjectURL(it.url);
-  const items = await Promise.all(files.map((f, i) => makeItem(f, i + 1)));
+  const items = await Promise.all(files.map((file, i) => makeItem(file, i + 1)));
+  if (stale(f)) return;
   app.items = items; app.current = 0; app.view = 'after';
-  if (items.length === 1) return single(items[0]);
+  if (items.length === 1) return single(items[0], f);
   app.batchPhase = 'found';
   await go(() => { app.screen = 'batch'; });
-  for (const it of app.items) await read(it);
+  for (const it of [...app.items]) { if (stale(f)) return; await read(it); }
 }
 
-async function single(it: Item) {
+/** Drop one file from a batch (before cleaning). Empty batch → back to start. */
+export function removeItem(id: number) {
+  const it = app.items.find((x) => x.id === id);
+  if (it?.url) URL.revokeObjectURL(it.url);
+  app.items = app.items.filter((x) => x.id !== id);
+  if (!app.items.length) home();
+  else if (app.items.length === 1 && app.batchPhase === 'found') { app.current = 0; void single(app.items[0], flow); }
+}
+
+async function single(it: Item, f = flow) {
   const { soft, hard } = limits();
   if (it.file.size > hard) return go(() => { it.status = 'tooLarge'; app.msg = 'tooLarge'; app.screen = 'msg'; });
   if (it.kind === 'unsupported') return go(() => { it.status = 'unsupported'; app.msg = 'unsupported'; app.screen = 'msg'; });
   if (it.kind === 'text') return go(() => { it.status = 'plain'; app.msg = 'plain'; app.screen = 'msg'; });
   if (it.file.size > soft) return go(() => { it.status = 'big'; app.msg = 'big'; app.screen = 'msg'; });
-  await openReport(it);
+  await openReport(it, f);
 }
 
 async function ensureAv() {
@@ -100,16 +116,18 @@ async function ensureAv() {
   await loadAv((d, tot) => { app.loadDone = d; app.loadTotal = tot; });
 }
 
-export async function openReport(it: Item) {
+export async function openReport(it: Item, f = flow) {
   try {
     if (it.kind === 'av') await ensureAv();
+    if (stale(f)) return;
     await read(it);
+    if (stale(f)) return;
     if (it.status === 'error') throw new Error(it.error);
     const nothing = it.report && !Object.keys(it.report.found).length;
     await go(() => {
       if (nothing) { app.msg = 'nothing'; app.screen = 'msg'; } else app.screen = 'report';
     });
-  } catch (e) { fail(e); }
+  } catch (e) { if (!stale(f)) fail(e); }
 }
 
 async function read(it: Item) {
@@ -258,6 +276,7 @@ export function toggleCat(c: Category, on: boolean) {
 }
 
 export function home() {
+  flow++; // cancel whatever is still loading or reading
   go(() => { app.screen = 'start'; app.modeOpen = false; app.batchPhase = 'found'; }, 'back');
 }
 

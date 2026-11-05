@@ -100,5 +100,17 @@
   <div class="toast" class:show={toastShow} role="status" aria-live="polite">{app.toast}</div>
 </div>
 
+{#if dragging}
+  <!-- whole-window drop target: clear "let go here", on any screen -->
+  <div class="drop-overlay" aria-hidden="true">
+    <div class="drop-card">
+      <span class="drop-icon"><Icon name="upload" /></span>
+      <p class="drop-title">{t('start.dropActive')}</p>
+      <p class="drop-sub">{t('start.multipleHint')}</p>
+      <p class="drop-note"><Icon name="lock" cls="inline" />{t('footer.promise')}</p>
+    </div>
+  </div>
+{/if}
+
 <input bind:this={anyInput} type="file" multiple hidden onchange={onPicked} />
 <input bind:this={mediaInput} type="file" multiple hidden accept="image/*,video/*" onchange={onPicked} />
