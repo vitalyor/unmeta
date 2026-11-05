@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DIRS = ['a-protocol', 'b-redaction', 'c-vault'];
+const DIRS = ['a-protocol', 'b-redaction', 'c-vault', 'd-merged', 'e-photo'];
 const port = 9800 + Math.floor(Math.random() * 100);
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ['--headless', '--disable-gpu', `--remote-debugging-port=${port}`, '--user-data-dir=/tmp/um-smoke-prof', 'about:blank'], { stdio: 'ignore' });
@@ -49,13 +49,35 @@ try {
     await click('[data-action=largeTry]'); await until('UM.S.large.phase === "done"', 10000);
     await click('[data-action=lang]'); assert.equal(await js('document.documentElement.lang'), 'en', dir + ': lang toggles');
     await click('[data-action=theme]'); assert.equal(await js('document.documentElement.dataset.theme'), 'dark', dir + ': theme toggles');
+    // the headline never runs out of its column (a long word like «рассказывают» used to slide under the photo)
+    for (const w of [900, 1024, 1180, 1366, 1600]) for (const lang of ['ru', 'en']) {
+      await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: false });
+      await send('Page.navigate', { url: `${base}?screen=start&lang=${lang}&still=1` }); await until('!!window.UM');
+      await js('document.fonts.ready.then(() => true)');
+      const over = await js(`(() => { const h = document.querySelector('.hero-title'), d = document.querySelector('.drop');
+        const hr = h.getBoundingClientRect(), dr = d.getBoundingClientRect(), side = dr.left > hr.left + 50 && dr.top < hr.bottom;
+        return h.scrollWidth > h.clientWidth + 1 || (side && hr.right > dr.left - 8 && [...h.getClientRects()].length && (() => { const r = document.createRange(); r.selectNodeContents(h); return r.getBoundingClientRect().right > dr.left - 8; })()); })()`);
+      assert.equal(over, false, `${dir} start ${lang} ${w}px: headline runs into the photo/drop area`);
+    }
     // 320px phone: no horizontal scroll on any screen, either language
     await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 640, deviceScaleFactor: 1, mobile: true });
-    for (const lang of ['ru', 'en']) for (const s of ['start', 'report', 'modes', 'after', 'batch', 'unsupported', 'large']) {
+    for (const lang of ['ru', 'en']) for (const s of ['start', 'report', 'modes', 'after', 'batch', 'unsupported', 'large', 'tooLarge', 'loading', 'clean', 'plain', 'error', 'report&long=1', 'after&long=1']) {
       await send('Page.navigate', { url: `${base}?screen=${s}&lang=${lang}&still=1` }); await until('!!window.UM');
       await js('document.fonts.ready.then(() => true)');
       const [sw, iw] = await js('[document.documentElement.scrollWidth, innerWidth]');
       assert.ok(sw <= iw, `${dir} ${s} ${lang}: horizontal scroll at 320px (${sw} > ${iw})`);
+      // icons only: no emoji anywhere; every icon decorative + non-empty; icon-only buttons are labelled
+      const bad = await js(`(() => {
+        const out = [];
+        const emoji = document.body.innerText.match(/(?![©®™])\\p{Extended_Pictographic}/gu); if (emoji) out.push('emoji: ' + emoji.join(''));
+        for (const s of document.querySelectorAll('svg.ic')) { if (s.getAttribute('aria-hidden') !== 'true') out.push('icon not aria-hidden'); if (!s.childElementCount) out.push('empty icon'); }
+        for (const b of document.querySelectorAll('button, a')) if (!b.textContent.trim() && !b.getAttribute('aria-label')) out.push('unlabelled icon button');
+        for (const b of document.querySelectorAll('.btn')) if (b.offsetParent && b.scrollWidth > b.clientWidth + 1) out.push('button text cut: ' + b.textContent.trim());
+        return out; })()`);
+      assert.deepEqual(bad, [], `${dir} ${s} ${lang}: ${bad.join(', ')}`);
+      // highlighted values must not run out of their card (cards clip overflow, so scrollWidth can't see it)
+      const spill = await js(`[...document.querySelectorAll('.spec-v, .s-report .find-ev')].filter((e) => { const c = e.closest('.drop, .pane-file'); return c && e.getBoundingClientRect().right > c.getBoundingClientRect().right - 8; }).map((e) => e.textContent)`);
+      assert.deepEqual(spill, [], `${dir} ${s} ${lang}: value spills out of its card at 320px`);
     }
     console.log('ok', dir);
   }

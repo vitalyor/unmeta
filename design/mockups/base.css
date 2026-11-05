@@ -207,3 +207,10 @@ body:not(.no-mockbar) .foot { padding-bottom: 80px; }
 .vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .custom-wrap > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; font-weight: 600; }
 .custom-wrap .custom { margin-top: 2px; }
+
+.mode-desc { display: none; }
+.find-icon .ic-done { display: none; }
+.thumb-img { object-fit: cover; }
+.find-ev { overflow-wrap: anywhere; } /* long paths and serials wrap instead of spilling */
+@media (max-width: 440px) { .dock .mode-chip > span { display: none; } .dock .mode-chip { padding: 0 14px; flex: none; } .dock .btn { padding: 0 1em; } } /* narrow phones: chip keeps its icon (aria-label has the name), the main button keeps its words */
+@media (max-width: 380px) { .dock .mode-chip .chev { display: none; } .dock .btn { font-size: .95rem; gap: .45em; } }

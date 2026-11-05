@@ -11,8 +11,22 @@
     "dropActive": "Let go",
     "or": "or",
     "choose": "Choose files",
-    "chooseMobile": "Choose a photo or file",
+    "chooseMedia": "Choose photos and videos",
+    "chooseDocs": "Documents and other files",
     "multipleHint": "Add as many files as you like, or a whole folder",
+    "multipleHintMobile": "You can pick several at once",
+    "tryExample": "Try it on a sample",
+    "labelNote": "Hidden inside — you can’t see it in the photo",
+    "example": {
+      "where": "Where",
+      "whereValue": "55.7522, 37.6156 — accurate to the house",
+      "phone": "Phone",
+      "phoneValue": "Apple iPhone 15 Pro, serial number F7A39C1D",
+      "when": "When",
+      "whenValue": "12 May 2026, 6:42:07 PM",
+      "author": "Author",
+      "authorValue": "Anna K."
+    },
     "privacy": "Your files never leave your device — everything happens right in your browser.",
     "privacyLink": "See for yourself",
     "whatIsHidden": "What hidden data?",
@@ -113,7 +127,9 @@
     "downloadAll": "Download all",
     "downloadAllHint": "As a single ZIP",
     "share": "Share",
+    "saved": "Saved",
     "addMore": "Add more",
+    "chooseOther": "Choose another file",
     "startOver": "Start over",
     "remove": "Remove from list",
     "cancel": "Cancel",
@@ -138,6 +154,11 @@
   "batch": {
     "files": "{count, plural, one {# file} other {# files}}",
     "progress": "{done} of {total} done",
+    "findings": "{count, plural, one {# thing found} other {# things found}}",
+    "withLocation": "{count, plural, one {# of them has a location} other {# of them have a location}}",
+    "hasLocation": "Location inside",
+    "nothingHidden": "No hidden data",
+    "cantClean": "Can’t clean this kind yet",
     "cleaned": "{count, plural, one {# file cleaned} other {# files cleaned}}",
     "failed": "{count, plural, one {# file didn’t work out} other {# files didn’t work out}}",
     "skipped": "{count, plural, one {Skipped # file} other {Skipped # files}} — we can’t clean that kind yet",
@@ -150,6 +171,9 @@
     "verifying": "Double-checking…",
     "zipping": "Packing the ZIP…",
     "percent": "{percent}%",
+    "of": "{done} of {total}",
+    "left": "about {seconds}s left",
+    "leftMinutes": "about {minutes} min left",
     "loadingTool": "Loading the video and audio cleaner — just once, about {size}",
     "loadingToolHint": "This is the cleaning tool itself. Your files aren’t sent anywhere."
   },
@@ -162,7 +186,8 @@
   "unsupported": {
     "title": "We can’t clean this kind of file yet",
     "body": "We’d rather say so than promise it’s clean. Your file is untouched.",
-    "format": "Format: {ext}"
+    "format": "Format: {ext}",
+    "tip": "Tip: save it in another format — a document as PDF, a photo as JPEG — and we can clean it."
   },
 
   "bigFile": {
@@ -179,6 +204,7 @@
   },
 
   "errors": {
+    "title": "That didn’t work",
     "generic": "Something went wrong. Try again — your original hasn’t changed.",
     "readFailed": "We couldn’t open this file. It may be damaged, or still downloading from the cloud.",
     "cleanFailed": "We couldn’t clean this file. We left it untouched — don’t share it as clean.",

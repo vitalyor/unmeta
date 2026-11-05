@@ -108,8 +108,8 @@ body.intro:not(.no-intro) .drop { animation: rise .8s var(--ease-out) .1s both; 
 .view-after .find.is-remove { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); }
 .view-after .find.is-remove .find-body { opacity: .42; transform: scale(.985); transform-origin: left center; transition: opacity .3s, transform .3s var(--ease-out); }
 .view-after .find.is-remove .find-icon { background: var(--ok); color: var(--on-ok); }
-.view-after .find.is-remove .find-icon .ic { display: none; }
-.view-after .find.is-remove .find-icon::after { content: ''; width: 16px; height: 9px; border-left: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor; transform: translateY(-2px) rotate(-45deg); }
+.view-after .find.is-remove .find-icon .ic-cat { display: none; }
+.view-after .find.is-remove .find-icon .ic-done { display: inline-block; stroke-width: 2.4; }
 .view-after .find.is-remove .find-state { background: transparent; color: var(--ok); padding-left: 0; }
 .view-after .find.is-remove .find-ev { text-decoration: line-through; text-decoration-thickness: 1.5px; }
 .view-before .find-state { display: none; }
@@ -211,6 +211,7 @@ window.DIR = {
   },
 };
 </script>
+<script src="icons.js"></script>
 <script src="copy.js"></script>
 <script src="shared.js"></script>
 </body>

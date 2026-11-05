@@ -45,18 +45,18 @@ const t = (key, p = {}) => { const s = key.split('.').reduce((o, k) => o?.[k], C
 
 /* Mockup-only strings (demo values, toolbar). Not product copy. */
 const M = {
-  ru: { screens: 'Экраны', s: { start: 'Старт', report: 'Отчёт', modes: 'Режим', after: 'Было / стало', batch: 'Пакет', unsupported: 'Отказ', large: 'Большой файл' },
+  ru: { screens: 'Экраны', s: { start: 'Старт', report: 'Отчёт', modes: 'Режим', after: 'Было / стало', batch: 'Пакет', unsupported: 'Отказ', large: 'Большой файл', tooLarge: 'Слишком большой', loading: 'Загрузка видео', clean: 'Ничего не нашли', plain: 'Текстовый файл', error: 'Ошибка' },
         mock: 'Макет', demo: 'Попробовать на примере', more: 'ещё {n}', left: 'осталось ~{s} с', of: '{a} из {b}',
         exportTip: 'Совет: сохраните презентацию как PDF — его мы очистим.', chooseOther: 'Выбрать другой файл', multiMobile: 'Можно отметить сразу несколько фото и видео', pickFiles: 'Документы и другие файлы', pickMedia: 'Выбрать фото и видео', phone: 'на этом телефоне',
         willRemove: 'Будет удалено', willKeep: 'Останется', found: 'Нашли', nothing: 'Не нашли', saved: 'Сохранено', zip: 'ZIP, {size}',
         short: { location: 'Геопозиция', device: 'Устройство', dates: 'Даты', author: 'Автор', software: 'Программы', thumbnails: 'Превью', descriptions: 'Подписи', c2pa: 'C2PA', filename: 'Имя файла' },
-        cats: 'категорий', tags: 'Поля в файле', theme: 'Сменить тему', langBtn: 'English', cleanAll: 'Очистить всё' },
-  en: { screens: 'Screens', s: { start: 'Start', report: 'Report', modes: 'Mode', after: 'Before / after', batch: 'Batch', unsupported: 'Unsupported', large: 'Large file' },
+        failTitle: 'Не получилось', cats: 'категорий', tags: 'Поля в файле', theme: 'Сменить тему', langBtn: 'English', cleanAll: 'Очистить всё' },
+  en: { screens: 'Screens', s: { start: 'Start', report: 'Report', modes: 'Mode', after: 'Before / after', batch: 'Batch', unsupported: 'Unsupported', large: 'Large file', tooLarge: 'Too large', loading: 'Video tool', clean: 'Nothing found', plain: 'Text file', error: 'Error' },
         mock: 'Mockup', demo: 'Try with a sample', more: '{n} more', left: '~{s}s left', of: '{a} of {b}',
         exportTip: 'Tip: save the presentation as a PDF — we can clean that.', chooseOther: 'Choose another file', multiMobile: 'You can tick several photos and videos at once', pickFiles: 'Documents and other files', pickMedia: 'Choose photos and videos', phone: 'on this phone',
         willRemove: 'Will be removed', willKeep: 'Stays', found: 'Found', nothing: 'Not found', saved: 'Saved', zip: 'ZIP, {size}',
         short: { location: 'Location', device: 'Device', dates: 'Dates', author: 'Author', software: 'Apps', thumbnails: 'Preview', descriptions: 'Captions', c2pa: 'C2PA', filename: 'File name' },
-        cats: 'categories', tags: 'Fields in the file', theme: 'Switch theme', langBtn: 'Русский', cleanAll: 'Clean all' },
+        failTitle: 'That didn’t work', cats: 'categories', tags: 'Fields in the file', theme: 'Switch theme', langBtn: 'Русский', cleanAll: 'Clean all' },
 };
 const m = (k, p = {}) => fmt(k.split('.').reduce((o, x) => o?.[x], M[lang]) ?? k, p);
 
@@ -67,39 +67,14 @@ const MODES = {
   balanced:    new Set(['location', 'device', 'author', 'software', 'thumbnails']),
   privateOnly: new Set(['location', 'device']),
 };
-const MODE_ICON = { maximum: 'shield', balanced: 'scale', privateOnly: 'location', custom: 'sliders' };
+const MODE_ICON = { maximum: 'shield', balanced: 'scale', privateOnly: 'private', custom: 'sliders' };
 
-const ICON = {
-  location: '<path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
-  device: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
-  dates: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  author: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.5 7-5.5s5.8 1.9 7 5.5"/>',
-  software: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
-  thumbnails: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.75"/><path d="M21 16l-5-5-8 9"/>',
-  descriptions: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
-  c2pa: '<path d="M12 3l2.4 1.8 3-.2.9 2.9 2.4 1.8-1 2.8 1 2.8-2.4 1.8-.9 2.9-3-.2L12 21l-2.4-1.8-3 .2-.9-2.9-2.4-1.8 1-2.8-1-2.8 2.4-1.8.9-2.9 3 .2z"/><path d="M9 12l2 2 4-4"/>',
-  filename: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
-  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/>',
-  scale: '<path d="M12 4v16M8 20h8M5 7h14"/><path d="M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
-  sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
-  eraser: '<path d="M7 21h13"/><path d="M4.6 15.4l9-9a2 2 0 0 1 2.8 0l3.2 3.2a2 2 0 0 1 0 2.8L13 19H8.2z"/><path d="M9 11l5 5"/>',
-  upload: '<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
-  download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
-  share: '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2"/>',
-  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
-  x: '<path d="M6 6l12 12M18 6L6 18"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
-  chevron: '<path d="M6 9l6 6 6-6"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  weight: '<path d="M6.5 8h11l2.5 12H4z"/><circle cx="12" cy="5.5" r="2.5"/>',
-  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
-};
+const ICON = window.UM_ICONS; // Lucide, see icons.js (one set, 24 grid, one stroke)
 const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n] || ''}</svg>`;
 
 /* Placeholder visuals for files — no images, no network. */
-function thumb(kind, seed = 0) {
+function thumb(kind, seed = 0, url = '') {
+  if (url) return `<img class="thumb-art thumb-img" src="${url}" alt="" decoding="async" onerror="this.style.visibility='hidden'">`;
   const skies = [['#F7B98E', '#8A97D6'], ['#9CC9E6', '#3E6FA8'], ['#F3D2A2', '#C9786A'], ['#B9D7C5', '#5E8C86']];
   const [a, b] = skies[seed % skies.length];
   if (kind === 'photo' || kind === 'video') return `<svg class="thumb-art" viewBox="0 0 120 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -112,7 +87,7 @@ function thumb(kind, seed = 0) {
   return `<svg class="thumb-art thumb-file" viewBox="0 0 120 90" aria-hidden="true"><rect width="120" height="90" class="tf-bg"/><path d="M44 14h24l12 12v50H44z" class="tf-page"/><path d="M68 14v12h12" class="tf-fold"/><text x="62" y="60" text-anchor="middle" class="tf-ink tf-text">${glyph}</text></svg>`;
 }
 
-window.UM_thumb = (k, n) => thumb(k, n);
+window.UM_thumb = (k, n, u) => thumb(k, n, u);
 const L = (ru, en) => (lang === 'ru' ? ru : en);
 const size = (b) => {
   const u = lang === 'ru' ? ['Б', 'КБ', 'МБ', 'ГБ'] : ['B', 'KB', 'MB', 'GB'];
@@ -121,8 +96,15 @@ const size = (b) => {
 };
 
 /* Demo photo — what a typical iPhone shot carries. */
-const PHOTO = () => ({
-  name: 'IMG_4821.HEIC', bytes: 3.4 * 1048576, kind: 'photo', neutral: 'photo_01',
+const LONG = qs.get('long') === '1';
+const PHOTO = () => LONG ? { ...PHOTO0(),
+  name: L('Отпуск_у_бабушки_Маши_в_Сочи_август_2026_финальная_версия_копия(3).HEIC', 'Summer_at_grandma_Mashas_in_Sochi_August_2026_final_version_copy(3).HEIC'),
+  found: { ...PHOTO0().found, author: L('Анна Константиновна Королёва-Белозерская, © 2026 все права защищены', 'Anna Konstantinovna Koroleva-Belozerskaya, © 2026 all rights reserved'),
+    software: 'Adobe Photoshop Lightroom Classic 14.2 (Macintosh) · /Users/anna/Pictures/Lightroom/Отпуск 2026/Экспорт для семьи/' } } : PHOTO0();
+const PHOTO0 = () => ({
+  name: 'IMG_4821.HEIC', bytes: 3.4 * 1048576, kind: 'photo', neutral: 'photo_01', url: 'photos/dog.jpg',
+  short: { location: L('Точное место съёмки', 'Exact location'), device: 'iPhone 15 Pro', dates: L('12 мая, 18:42', '12 May, 6:42 PM'), author: L('Анна К.', 'Anna K.'),
+    software: L('Фото iOS 19.1', 'iOS 19.1 Photos'), thumbnails: L('Скрытая копия', 'Hidden copy'), descriptions: L('«Дача, май»', '“Cabin, May”'), filename: 'IMG_4821' },
   found: {
     location: null,
     device: L('Apple iPhone 15 Pro · серийный номер объектива', 'Apple iPhone 15 Pro · lens serial number'),
@@ -131,7 +113,7 @@ const PHOTO = () => ({
     software: L('Фото iOS 19.1 · 2 правки', 'iOS 19.1 Photos · 2 edits'),
     thumbnails: '160 × 120',
     descriptions: L('«Дача, май»', '“Cabin, May”'),
-    filename: 'IMG_4821 → photo_01',
+    filename: L('IMG_4821 станет photo_01', 'IMG_4821 becomes photo_01'),
   },
   tags: [
     ['GPS', 'GPSLatitude', '55° 45′ 7.92″ N'], ['GPS', 'GPSLongitude', '37° 36′ 56.16″ E'], ['GPS', 'GPSAltitude', '156.2 m'], ['GPS', 'GPSHPositioningError', '4.7 m'],
@@ -142,9 +124,11 @@ const PHOTO = () => ({
   ],
 });
 const BATCH = () => [
-  { name: 'IMG_4821.HEIC', bytes: 3.4e6, kind: 'photo', found: ['location', 'device', 'dates', 'thumbnails'] },
-  { name: 'IMG_4822.HEIC', bytes: 3.1e6, kind: 'photo', found: ['location', 'device', 'dates'] },
-  { name: 'VID_0091.MOV', bytes: 184e6, kind: 'video', found: ['location', 'device', 'dates'] },
+  { name: 'IMG_4821.HEIC', bytes: 3.4e6, kind: 'photo', url: 'photos/dog.jpg', found: ['location', 'device', 'dates', 'thumbnails'] },
+  { name: 'IMG_4822.HEIC', bytes: 3.1e6, kind: 'photo', url: 'photos/cat.jpg', found: ['location', 'device', 'dates'] },
+  { name: 'VID_0091.MOV', bytes: 184e6, kind: 'video', url: 'photos/boat.jpg', found: ['location', 'device', 'dates'] },
+  { name: 'IMG_4830.JPG', bytes: 2.6e6, kind: 'photo', url: 'photos/food.jpg', found: ['location', 'device', 'dates', 'software'] },
+  { name: 'IMG_4844.JPG', bytes: 2.2e6, kind: 'photo', url: 'photos/friends.jpg', found: ['device', 'dates', 'descriptions'] },
   { name: L('Отчёт_Q3.docx', 'Q3_report.docx'), bytes: 220e3, kind: 'doc', found: ['author', 'software', 'dates'] },
   { name: L('Скан_договора.pdf', 'Contract_scan.pdf'), bytes: 1.2e6, kind: 'pdf', found: ['software', 'dates'] },
   { name: 'voice_memo.m4a', bytes: 2.3e6, kind: 'audio', found: ['device', 'dates'] },
@@ -180,7 +164,7 @@ function footer() {
 }
 
 const fileHead = (f, extra = '') => `<div class="file-head">
-  <div class="thumb" style="view-transition-name:hero">${thumb(f.kind)}</div>
+  <div class="thumb" style="view-transition-name:hero">${thumb(f.kind, 0, f.url)}</div>
   <div class="file-meta"><div class="file-name">${f.name}</div><div class="file-size">${size(f.bytes)}${extra}</div></div></div>`;
 
 function screenStart() {
@@ -195,17 +179,17 @@ function screenStart() {
         <span class="drop-icon">${ic('upload')}</span>
         <p class="drop-title"><span class="when-idle">${t('start.drop')}</span><span class="when-drag">${t('start.dropActive')}</span></p>
         <p class="drop-or">${t('start.or')}</p>
-        ${btn('pick', mobile() ? m('pickMedia') : t('start.choose'), 'btn-primary btn-pick')}
-        <p class="drop-hint">${mobile() ? m('multiMobile') : t('start.multipleHint')}</p>
-        ${mobile() ? `<button type="button" class="link-btn pick-files" data-action="pickFiles">${m('pickFiles')}</button>` : ''}
+        ${btn('pick', mobile() ? t('start.chooseMedia') : t('start.choose'), 'btn-primary btn-pick')}
+        <p class="drop-hint">${mobile() ? t('start.multipleHintMobile') : t('start.multipleHint')}</p>
+        ${mobile() ? `<button type="button" class="link-btn pick-files" data-action="pickFiles">${t('start.chooseDocs')}</button>` : ''}
       </div>
     </div>
     <div class="start-extra">
       <p class="privacy-line">${ic('lock')}<span>${t('start.privacy')} <a href="#">${t('start.privacyLink')}</a></span></p>
       <details class="what"><summary>${t('start.whatIsHidden')}${ic('chevron')}</summary><p>${t('start.whatIsHiddenBody')}</p></details>
-      <button type="button" class="link-btn" data-action="demo">${m('demo')}</button>
+      <button type="button" class="link-btn" data-action="demo">${t('start.tryExample')}</button>
     </div>
-    <div class="dock">${btn('pick', m('pickMedia'), 'btn-primary btn-block')}</div>
+    <div class="dock">${btn('pick', t('start.chooseMedia'), 'btn-primary btn-block')}</div>
   </section>`;
 }
 
@@ -218,7 +202,7 @@ function rowsHtml(f, phase) {
       : c === 'filename' && !rm ? f.name.replace(/\.\w+$/, '') : f.found[c];
     const text = phase === 'after' ? t(`categories.${c}.name`) : t(`categories.${c}.found`, { state, neutral: f.neutral || 'photo_01' });
     return `<li class="find ${rm ? 'is-remove' : 'is-keep'} cat-${c}" style="--i:${i}" data-cat="${c}">
-      <span class="find-icon">${ic(c)}</span>
+      <span class="find-icon">${ic(c, 'ic-cat')}${phase === 'after' && rm ? ic('check', 'ic-done') : ''}</span>
       <span class="find-body">
         <span class="find-text">${text}</span>
         ${ev ? `<span class="find-ev"><span class="ev-val">${ev}</span><span class="redact" aria-hidden="true"></span></span>` : ''}
@@ -235,13 +219,14 @@ function modePicker() {
     <div class="modes-head"><span class="modes-label">${t('modes.label')}</span><span class="modes-note">${t('modes.remembered')}</span></div>
     <div class="mode-list">${opts.map((k) => `<button type="button" role="radio" aria-checked="${S.mode === k}" class="mode ${S.mode === k ? 'is-on' : ''}" data-action="mode" data-mode="${k}">
       <span class="mode-icon">${ic(MODE_ICON[k])}</span><span class="mode-name">${t(`modes.${k}.name`)}</span><span class="mode-for">${t(`modes.${k}.for`)}</span></button>`).join('')}</div>
+    <p class="mode-desc" aria-live="polite">${t(`modes.${S.mode}.for`)}</p>
     <details class="custom-wrap" ${S.mode === 'custom' || S.customOpen ? 'open' : ''}><summary data-action="customOpen">${t('modes.custom.heading')}${ic('chevron')}</summary>
     <fieldset class="custom"><legend class="vh">${t('modes.custom.heading')}</legend>${CATS.map((c, i) => `<label class="chk" style="--i:${i}"><input type="checkbox" data-action="toggle" data-cat="${c}" aria-label="${t('modes.custom.toggleLabel', { category: t(`categories.${c}.name`) })}" ${active().has(c) ? 'checked' : ''}><span class="chk-box">${ic('check')}</span>${ic(c)}<span>${t(`categories.${c}.name`)}</span></label>`).join('')}</fieldset></details>
   </div>`;
 }
 
 function modeChip() {
-  return `<button type="button" class="mode-chip" data-action="modeOpen" aria-expanded="${S.modeOpen}">${ic(MODE_ICON[S.mode])}<span>${t(`modes.${S.mode}.name`)}</span>${ic('chevron', 'chev')}</button>`;
+  return `<button type="button" class="mode-chip" data-action="modeOpen" aria-expanded="${S.modeOpen}" aria-label="${t('modes.label')}: ${t(`modes.${S.mode}.name`)}">${ic(MODE_ICON[S.mode])}<span>${t(`modes.${S.mode}.name`)}</span>${ic('chevron', 'chev')}</button>`;
 }
 
 function screenReport() {
@@ -274,7 +259,7 @@ function screenAfter() {
   const name = set.has('filename') ? `${f.neutral}_clean.heic` : f.name.replace(/\.(\w+)$/, '_clean.$1').replace('.HEIC', '.heic');
   return `<section class="screen s-after view-${S.view}">
     <div class="pane pane-file">
-      ${fileHead(f, ` <span class="arrow">→</span> <span class="newname">${name}</span>`)}
+      ${fileHead(f, ` <span class="arrow">${ic('arrow', 'inline')}</span> <span class="newname">${name}</span>`)}
       <div class="done-head"><span class="done-badge">${ic('check')}</span><div><h1 class="sec-title">${t('result.done')}</h1><p class="summary">${all ? t('result.verified') : t('result.verifiedKept')}</p></div></div>
       <div class="ba" role="tablist" aria-label="${t('result.before')} / ${t('result.after')}">
         <button type="button" role="tab" aria-selected="${S.view === 'before'}" data-action="view" data-view="before">${t('result.before')}</button>
@@ -286,14 +271,14 @@ function screenAfter() {
     </div>
     <div class="pane pane-act">
       <div class="get">
-        ${mobile() ? btn('save', S.saved ? m('saved') : t('actions.save'), 'btn-primary btn-get' + (S.saved ? ' is-done' : ''), S.saved ? 'check' : 'share')
-                   : btn('save', S.saved ? m('saved') : t('actions.download'), 'btn-primary btn-get' + (S.saved ? ' is-done' : ''), S.saved ? 'check' : 'download')}
+        ${mobile() ? btn('save', S.saved ? t('actions.saved') : t('actions.save'), 'btn-primary btn-get' + (S.saved ? ' is-done' : ''), S.saved ? 'check' : 'share')
+                   : btn('save', S.saved ? t('actions.saved') : t('actions.download'), 'btn-primary btn-get' + (S.saved ? ' is-done' : ''), S.saved ? 'check' : 'download')}
         <p class="get-hint">${mobile() ? t('actions.saveHint') : t('result.newName', { name })}</p>
         <p class="get-safe">${t('result.originalSafe')}</p>
         ${btn('home', t('actions.startOver'), 'btn-quiet')}
       </div>
     </div>
-    <div class="dock">${btn('save', S.saved ? m('saved') : (mobile() ? t('actions.save') : t('actions.download')), 'btn-primary btn-block btn-get' + (S.saved ? ' is-done' : ''), S.saved ? 'check' : (mobile() ? 'share' : 'download'))}</div>
+    <div class="dock">${btn('save', S.saved ? t('actions.saved') : (mobile() ? t('actions.save') : t('actions.download')), 'btn-primary btn-block btn-get' + (S.saved ? ' is-done' : ''), S.saved ? 'check' : (mobile() ? 'share' : 'download'))}</div>
   </section>`;
 }
 
@@ -307,7 +292,7 @@ function batchRow(f, i) {
   else status = `<span class="st st-ok">${ic('check')}${t('result.done')}</span>`;
   const get = ph === 'done' && !f.unsupported && !f.plain ? `<button type="button" class="icon-btn" data-action="noop" aria-label="${t('actions.download')} ${f.name}">${ic(mobile() ? 'share' : 'download')}</button>` : '';
   return `<li class="brow ${f.unsupported ? 'is-skip' : ''}" style="--i:${i}">
-    <div class="thumb sm">${thumb(f.kind, i)}</div>
+    <div class="thumb sm">${thumb(f.kind, i, f.url)}</div>
     <div class="brow-meta"><div class="file-name">${f.name}</div><div class="file-size">${size(f.bytes)}</div></div>
     <div class="brow-status">${status}</div>${get}</li>`;
 }
@@ -334,20 +319,20 @@ function screenBatch() {
 }
 
 function screenUnsupported() {
-  const f = { name: L('Презентация.key', 'Pitch.key'), bytes: 18e6, kind: 'other' };
+  const f = S.other || { name: L('Презентация.key', 'Pitch.key'), bytes: 18e6, kind: 'other' };
   return `<section class="screen s-msg s-unsupported">
     <div class="msg">
       ${fileHead(f)}
       <h1 class="sec-title">${t('unsupported.title')}</h1>
       <p class="msg-body">${t('unsupported.body')}</p>
-      <p class="msg-meta">${t('unsupported.format', { ext: '.key (Keynote)' })}</p>
-      <p class="msg-tip">${ic('info')}${m('exportTip')}</p>
-      <div class="msg-act">${btn('pick', m('chooseOther'), 'btn-primary')}${btn('home', t('actions.close'), 'btn-quiet')}</div>
+      <p class="msg-meta">${t('unsupported.format', { ext: '.' + (f.name.split('.').pop() || '?') })}</p>
+      <p class="msg-tip">${ic('info')}${t('unsupported.tip')}</p>
+      <div class="msg-act">${btn('pick', t('actions.chooseOther'), 'btn-primary')}${btn('home', t('actions.close'), 'btn-quiet')}</div>
     </div></section>`;
 }
 
 function screenLarge() {
-  const f = { name: 'VID_2026_05_12.MOV', bytes: 2.4 * 1073741824, kind: 'video' }, L2 = S.large;
+  const f = S.other || { name: 'VID_2026_05_12.MOV', bytes: 2.4 * 1073741824, kind: 'video' }, L2 = S.large;
   const pct = Math.round(L2.p * 100), stage = L2.p < 0.15 ? 'reading' : L2.p < 0.9 ? 'cleaning' : 'verifying';
   const body = L2.phase === 'ask'
     ? `<h1 class="sec-title">${t('bigFile.title', { size: size(f.bytes) })}</h1>
@@ -357,7 +342,7 @@ function screenLarge() {
     ? `<h1 class="sec-title" aria-live="polite">${t('progress.' + stage)}</h1>
        <div class="big-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${t('a11y.progress', { name: f.name, percent: pct })}">
          <div class="bp-track"><div class="bp-fill" style="--p:${L2.p}"></div></div>
-         <div class="bp-nums"><span class="bp-pct">${t('progress.percent', { percent: pct })}</span><span class="bp-left">${m('of', { a: size(f.bytes * L2.p), b: size(f.bytes) })} · ${m('left', { s: Math.max(1, Math.round((1 - L2.p) * 14)) })}</span></div>
+         <div class="bp-nums"><span class="bp-pct">${t('progress.percent', { percent: pct })}</span><span class="bp-left">${t('progress.of', { done: size(f.bytes * L2.p), total: size(f.bytes) })} · ${t('progress.left', { seconds: Math.max(1, Math.round((1 - L2.p) * 14)) })}</span></div>
        </div>
        <div class="msg-act">${btn('largeCancel', t('actions.cancel'), 'btn-quiet')}</div>`
     : `<div class="done-head"><span class="done-badge">${ic('check')}</span><div><h1 class="sec-title">${t('result.done')}</h1><p class="summary">${t('result.verified')}</p></div></div>
@@ -365,13 +350,30 @@ function screenLarge() {
   return `<section class="screen s-msg s-large phase-${L2.phase}"><div class="msg">${fileHead(f)}${body}</div></section>`;
 }
 
-const SCREENS = { start: screenStart, report: screenReport, after: screenAfter, batch: screenBatch, unsupported: screenUnsupported, large: screenLarge };
+const msgScreen = (f, title, body, extra, acts) => `<section class="screen s-msg s-${S.screen}"><div class="msg">${fileHead(f)}
+  <h1 class="sec-title">${title}</h1>${body ? `<p class="msg-body">${body}</p>` : ''}${extra || ''}<div class="msg-act">${acts}</div></div></section>`;
+const screenClean = () => msgScreen(S.other || { ...PHOTO(), name: 'IMG_5002.PNG', bytes: 1.1e6 }, t('report.nothingFound'), t('report.nothingFoundHint'),
+  `<p class="msg-meta">${t('report.alwaysKept')}</p>`, btn('pick', t('actions.addMore'), 'btn-primary', 'plus') + btn('home', t('actions.startOver'), 'btn-quiet'));
+const screenPlain = () => msgScreen(S.other || { name: 'notes.txt', bytes: 4e3, kind: 'text' }, t('plainText.title'), t('plainText.body'), '',
+  btn('pick', t('actions.chooseOther'), 'btn-primary') + btn('home', t('actions.close'), 'btn-quiet'));
+const screenError = () => msgScreen(S.file, t('errors.title'), t('errors.outOfMemory'), `<p class="msg-meta">${t('result.originalSafe')}</p>`,
+  btn('retry', t('actions.retry'), 'btn-primary') + btn('home', t('actions.close'), 'btn-quiet'));
+const screenTooLarge = () => { const f = S.other || { name: 'VID_2026_07_01.MOV', bytes: 5.2 * 1073741824, kind: 'video' };
+  return msgScreen(f, t('tooLarge.title', { size: size(f.bytes) }), t('tooLarge.body', { limit: size(4 * 1073741824) }), mobile() ? `<p class="msg-tip">${ic('info')}${t('tooLarge.mobileHint')}</p>` : '',
+    btn('pick', t('actions.chooseOther'), 'btn-primary') + btn('home', t('actions.close'), 'btn-quiet')); };
+const screenLoading = () => { const f = S.other || { name: 'VID_0091.MOV', bytes: 184e6, kind: 'video', url: 'photos/boat.jpg' }, p = S.loadP ?? 0.45;
+  return msgScreen(f, t('progress.loadingTool', { size: size(9.7 * 1048576) }), t('progress.loadingToolHint'),
+    `<div class="big-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}" aria-label="${t('progress.loadingTool', { size: size(9.7 * 1048576) })}"><div class="bp-track"><div class="bp-fill" style="--p:${p}"></div></div>
+     <div class="bp-nums"><span class="bp-pct">${t('progress.percent', { percent: Math.round(p * 100) })}</span><span class="bp-left">${t('progress.of', { done: size(9.7 * 1048576 * p), total: size(9.7 * 1048576) })}</span></div></div>`,
+    btn('home', t('actions.cancel'), 'btn-quiet')); };
+const SCREENS = { clean: screenClean, plain: screenPlain, error: screenError, tooLarge: screenTooLarge, loading: screenLoading, start: screenStart, report: screenReport, after: screenAfter, batch: screenBatch, unsupported: screenUnsupported, large: screenLarge };
+Object.assign(SCREENS, DIR.screens || {}); // a direction may draw its own screens with the helpers in window.UM
 
 function toolbar() {
   if (qs.get('ui') === '0') return '';
   const cur = S.screen === 'report' && S.modeOpen ? 'modes' : S.screen;
   return `<nav class="mock-bar" aria-label="${m('mock')}"><span class="mb-tag">${m('mock')} · ${DIR.name || ''}</span>${Object.keys(M.ru.s).map((k) =>
-    `<button type="button" data-action="jump" data-to="${k}" aria-current="${cur === k}">${m('s.' + k)}</button>`).join('')}<a href="index.html">↩</a></nav>`;
+    `<button type="button" data-action="jump" data-to="${k}" aria-current="${cur === k}">${m('s.' + k)}</button>`).join('')}<a href="index.html">${L('Все макеты', 'All mockups')}</a></nav>`;
 }
 
 /* ---------- mount with View Transitions ---------- */
@@ -417,12 +419,27 @@ const anyInput = mkInput('image/*,video/*,audio/*,.pdf,.doc,.docx,.xlsx,.pptx,.o
 const mediaInput = mkInput('image/*,video/*');
 function route(files) {
   if (!files.length) return;
-  if (files.length > 1) return go(() => { S.screen = 'batch'; S.batchPhase = 'found'; });
-  const f = files[0], ext = (f.name.split('.').pop() || '').toLowerCase();
+  const urlOf = (f) => (/^image\/(jpeg|png|webp|gif|avif|heic|heif)/.test(f.type) ? URL.createObjectURL(f) : '');
+  const SETS = [['location', 'device', 'dates', 'thumbnails'], ['device', 'dates'], ['location', 'device', 'dates'], ['author', 'software', 'dates']];
+  if (files.length > 1) return go(() => {
+    S.batch = files.map((f, i) => {
+      const ext = (f.name.split('.').pop() || '').toLowerCase(), kind = /^image/.test(f.type) ? 'photo' : /^video/.test(f.type) ? 'video' : /^audio/.test(f.type) ? 'audio' : ext === 'pdf' ? 'pdf' : /docx?|xlsx|pptx|od[tsp]/.test(ext) ? 'doc' : /txt|md|csv|json/.test(ext) ? 'text' : 'other';
+      return { name: f.name, bytes: f.size, kind, url: urlOf(f), plain: kind === 'text', unsupported: kind === 'other', found: kind === 'text' || kind === 'other' ? [] : SETS[i % SETS.length] };
+    });
+    S.screen = 'batch'; S.batchPhase = 'found';
+  });
+  const f = files[0], ext = (f.name.split('.').pop() || '').toLowerCase(), video = /^video/.test(f.type);
+  S.other = { name: f.name, bytes: f.size, kind: video ? 'video' : /^image/.test(f.type) ? 'photo' : /txt|md|csv|json/.test(ext) ? 'text' : 'other', url: urlOf(f) };
+  if (f.size > 4 * 1073741824) return go(() => { S.screen = 'tooLarge'; });
   if (f.size > 1.5 * 1073741824) return go(() => { S.screen = 'large'; S.large = { phase: 'ask', p: 0 }; });
-  if (!/^(jpe?g|heic|heif|avif|png|webp|tiff?|gif|dng|cr2|nef|arw|mp4|mov|m4v|m4a|mp3|wav|flac|ogg|webm|mkv|pdf|docx?|xlsx|pptx|od[tsp]|svg|txt|md|csv|json)$/.test(ext))
+  if (/^(txt|md|csv|json)$/.test(ext)) return go(() => { S.screen = 'plain'; });
+  if (!/^(jpe?g|heic|heif|avif|png|webp|tiff?|gif|dng|cr2|nef|arw|mp4|mov|m4v|m4a|mp3|wav|flac|ogg|webm|mkv|pdf|docx?|xlsx|pptx|od[tsp]|svg)$/.test(ext))
     return go(() => { S.screen = 'unsupported'; });
-  go(() => { S.file = { ...PHOTO(), name: f.name, bytes: f.size }; S.screen = 'report'; S.saved = false; });
+  const toReport = () => go(() => { S.file = { ...PHOTO(), name: f.name, bytes: f.size, url: urlOf(f) || PHOTO().url, kind: video ? 'video' : 'photo' }; S.screen = 'report'; S.saved = false; });
+  if (!video) return toReport();
+  // first video: the video tool loads once (~10 MB), then the report
+  go(() => { S.screen = 'loading'; S.loadP = 0; });
+  runProgress(RM ? 10 : 2400, (p) => { S.loadP = p; const el = $('.s-loading .bp-fill'); el?.style.setProperty('--p', p); const n = $('.s-loading .bp-pct'); if (n) n.textContent = t('progress.percent', { percent: Math.round(p * 100) }); }, () => S.screen === 'loading' && toReport());
 }
 
 const A = {
@@ -457,8 +474,10 @@ const A = {
   save: (el) => { el.classList.add('is-pressed'); setTimeout(() => { S.saved = true; paintKeep(); }, 260); },
   cleanBatch: () => { S.batchPhase = 'cleaning'; paintKeep(); setTimeout(() => { S.batchPhase = 'done'; paintKeep(); }, RM ? 50 : 2200); },
   largeTry: () => { S.large = { phase: 'run', p: 0 }; paintKeep(); largeLoop(); },
+  retry: () => go(() => { S.screen = 'report'; }),
   largeCancel: () => { S.large = { phase: 'ask', p: 0 }; paintKeep(); },
   jump: (el) => jump(el.dataset.to),
+  sticker: (el) => { S.sticker = S.sticker === el.dataset.cat ? '' : el.dataset.cat; paintKeep(); },
   noop: (el) => { el.classList.add('is-pressed'); setTimeout(() => el.classList.remove('is-pressed'), 300); },
 };
 function largeLoop() {
@@ -469,7 +488,7 @@ function largeLoop() {
     const fill = $('.bp-fill'); fill?.style.setProperty('--p', S.large.p);
     const pct = Math.round(S.large.p * 100), bar = $('.big-progress');
     if (bar) { bar.setAttribute('aria-valuenow', pct); $('.bp-pct').textContent = t('progress.percent', { percent: pct });
-      $('.bp-left').textContent = `${m('of', { a: size(2.4 * 1073741824 * S.large.p), b: size(2.4 * 1073741824) })} · ${m('left', { s: Math.max(1, Math.round((1 - S.large.p) * 6)) })}`;
+      $('.bp-left').textContent = `${t('progress.of', { done: size(2.4 * 1073741824 * S.large.p), total: size(2.4 * 1073741824) })} · ${t('progress.left', { seconds: Math.max(1, Math.round((1 - S.large.p) * 6)) })}`;
       const stage = S.large.p < 0.15 ? 'reading' : S.large.p < 0.9 ? 'cleaning' : 'verifying', h = $('.s-large .sec-title'), txt = t('progress.' + stage);
       if (h.textContent !== txt) h.textContent = txt; }
     if (S.large.p < 1) requestAnimationFrame(tick); else go(() => { S.large.phase = 'done'; });
@@ -485,8 +504,10 @@ function paintKeep() {
 function jump(to) {
   S.saved = false; S.modeOpen = false;
   if (to === 'modes') { S.screen = 'report'; S.modeOpen = true; if (S.mode !== 'custom') { S.custom = new Set(MODES.balanced); S.custom.add('dates'); S.mode = 'custom'; } }
-  else if (to === 'large') { S.screen = 'large'; S.large = { phase: 'ask', p: 0 }; }
-  else if (to === 'largeProgress') { S.screen = 'large'; S.large = { phase: 'run', p: 0.62 }; }
+  else if (to === 'loading') { S.screen = 'loading'; S.loadP = 0.45; S.other = null; }
+  else if (['clean', 'plain', 'error', 'tooLarge', 'unsupported'].includes(to)) { S.screen = to; S.other = null; }
+  else if (to === 'large') { S.other = null; S.screen = 'large'; S.large = { phase: 'ask', p: 0 }; }
+  else if (to === 'largeProgress') { S.other = null; S.screen = 'large'; S.large = { phase: 'run', p: 0.62 }; }
   else if (to === 'batch') { S.screen = 'batch'; S.batchPhase = qs.get('phase') || 'found'; }
   else { S.screen = to; if (to === 'after') S.view = qs.get('view') || 'after'; }
   go(() => {});
@@ -506,6 +527,7 @@ addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; document.bo
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('drop', (e) => { e.preventDefault(); dragN = 0; document.body.classList.remove('dragging'); route([...e.dataTransfer.files]); });
 
+window.UM = { S, t, m, L, ic, btn, size, thumb, CATS, MODES, active, mobile, rowsHtml, details, modePicker, modeChip, fileHead, paint, jump };
 /* ---------- boot ---------- */
 const theme = qs.get('theme') || localStorage.getItem('um-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 document.documentElement.dataset.theme = theme;
@@ -514,5 +536,4 @@ if (STILL) document.body.classList.add('still');
 const start = qs.get('screen');
 if (start) { STILL || true; jump(start); } else paint();
 if (start === 'after' && !STILL) { requestAnimationFrame(() => document.body.classList.add('erasing')); }
-window.UM = { S, t, paint, jump };
 })();

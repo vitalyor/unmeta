@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const DIRS = process.argv.slice(2).length ? process.argv.slice(2) : ['a-protocol', 'b-redaction', 'c-vault'];
+const DIRS = process.argv.slice(2).length ? process.argv.slice(2) : ['a-protocol', 'b-redaction', 'c-vault', 'd-merged', 'e-photo'];
 const WIDTHS = { 375: 812, 768: 1024, 1440: 900, 2560: 1440 };
 // [file name, query]
 const SHOTS = [
@@ -46,9 +46,12 @@ try {
   await send('Page.enable');
   for (const dir of DIRS) {
     mkdirSync(join(ROOT, 'screens', dir), { recursive: true });
-    const jobs = [...SHOTS.map(([n, q]) => [n, q, 'light']), ...EXTRA];
+    const MORE = dir === 'e-photo' ? [['clean', 'screen=clean'], ['plain', 'screen=plain'], ['error', 'screen=error'], ['too-large', 'screen=tooLarge'], ['loading', 'screen=loading'],
+      ['report-long', 'screen=report&long=1'], ['after-long', 'screen=after&long=1'], ['start-long', 'screen=start&long=1']].map(([n, q]) => [n, q, 'light']) : [];
+    const jobs = dir === 'icons' ? [['compare', 'x=1', 'light']] : [...SHOTS.map(([n, q]) => [n, q, 'light']), ...EXTRA, ...MORE];
     for (const [name, q, variant] of jobs) for (const [w, h] of Object.entries(WIDTHS)) {
       if (variant !== 'light' && w === '2560') continue;
+      if (dir === 'icons' && !['375', '1440'].includes(w)) continue;
       const width = +w, mobile = width < 768;
       await send('Emulation.setDeviceMetricsOverride', { width, height: h, deviceScaleFactor: 1, mobile });
       await send('Emulation.setTouchEmulationEnabled', { enabled: mobile, maxTouchPoints: mobile ? 5 : 1 });

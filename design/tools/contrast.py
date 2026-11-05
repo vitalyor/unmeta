@@ -14,6 +14,8 @@ P = {
  'B · Редакция · dark':  {'bg':'#141517','surface':'#1D1F22','ink':'#EDEDE7','muted':'#A3A69E','accent':'#EDEDE7','onAccent':'#141517','mark':'#E9CE45','onMark':'#141517','danger':'#F08C72','ok':'#8FCB8F'},
  'C · Морское стекло · light': {'bg':'#E6EEEA','surface':'#FFFFFF','ink':'#0F201B','muted':'#4A5D56','accent':'#0E6B5C','onAccent':'#FFFFFF','warm':'#9A4A0B','danger':'#B3261E','ok':'#1F7A4D','accentSoft':'#CFE6DF','warmSoft':'#F7E6D4','onWarm':'#FFFFFF'},
  'C · Морское стекло · dark':  {'bg':'#0C1613','surface':'#14221E','ink':'#E6F1EC','muted':'#9DB3AB','accent':'#7FD8C4','onAccent':'#0C1613','warm':'#F2A65A','danger':'#FF9C92','ok':'#6EDAA4','accentSoft':'#173A33','warmSoft':'#33261A','onWarm':'#14221E'},
+ 'D · Итог · light': {'bg':'#E8EEED','surface':'#FFFFFF','ink':'#0E1C1F','muted':'#4B5C60','accent':'#0A5F73','onAccent':'#FFFFFF','accentSoft':'#D3E6EA','warm':'#9A4A0B','warmSoft':'#F8E7D2','onWarm':'#FFFFFF','mark':'#FAE8CF','onMark':'#0E1C1F','danger':'#B3261E','ok':'#1F7A4D'},
+ 'D · Итог · dark':  {'bg':'#0B1517','surface':'#132124','ink':'#E6F0F1','muted':'#9AAFB3','accent':'#7DCFE0','onAccent':'#0B1517','accentSoft':'#173840','warm':'#F2A65A','warmSoft':'#33261A','onWarm':'#132124','mark':'#4A3418','onMark':'#F6E7D3','danger':'#FF9C92','ok':'#6EDAA4'},
 }
 pairs=[('ink','bg'),('ink','surface'),('muted','bg'),('muted','surface'),('onAccent','accent'),('accent','bg'),('accent','surface'),('danger','surface'),('ok','surface'),('warm','surface'),('onMark','mark'),('accent','accentSoft'),('ink','warmSoft'),('muted','warmSoft'),('warm','warmSoft'),('onWarm','warm')]
 bad=0

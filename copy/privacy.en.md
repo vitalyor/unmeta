@@ -21,7 +21,7 @@ You don’t have to take our word for it.
 
 **The easy way.** Open Unmeta and let it load. Turn off your internet — airplane mode works. Add a photo and clean it. It still works, which means your file has nowhere to go.
 
-**If you’d like to look under the hood.** On a computer, open the developer tools (F12, or ⌥⌘I on a Mac) and go to the **Network** tab. Clear the list, add a file, clean it and download the result. No new requests with your file will show up. The only thing that may load is the video cleaner the first time you add a video — and it travels *to* you, not from you.
+**If you’d like to look under the hood.** On a computer, open the developer tools (F12, or Option + Cmd + I on a Mac) and go to the **Network** tab. Clear the list, add a file, clean it and download the result. No new requests with your file will show up. The only thing that may load is the video cleaner the first time you add a video — and it travels *to* you, not from you.
 
 ## Open source
 

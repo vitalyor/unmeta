@@ -1,0 +1,89 @@
+/* Unmeta design tokens — direction E «Фото и текст». Source of truth for the MVP (src/), copied from design/mockups/e-photo.html.
+   Theme: follows the system; [data-theme] on <html> overrides it (the user's choice is remembered on the device).
+   Contrast of every text pair is checked by design/tools/contrast.py (all ≥ 4.5:1). */
+
+/* Fonts: self-hosted, subset to latin + cyrillic, woff2. No network requests to font CDNs. */
+@font-face { font-family: 'Onest'; src: url('/fonts/onest-var.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: 'Unbounded'; src: url('/fonts/unbounded-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+
+:root {
+  color-scheme: light dark;
+  /* colour — light */
+  --bg: #E8EEED;          /* page */
+  --surface: #FFFFFF;     /* cards, sheets */
+  --surface-2: #DCE5E4;   /* icon tiles, placeholders */
+  --ink: #0E1C1F;         /* text 17.4:1 on surface */
+  --muted: #4B5C60;       /* secondary text 7.0:1 */
+  --line: #E0E7E6;        /* hairlines */
+  --line-strong: #B9C7C7; /* control outlines */
+  --hover: rgba(14, 28, 31, .06);
+  --accent: #0A5F73;      /* petrol: buttons, links, selected mode — white text 7.3:1 */
+  --on-accent: #FFFFFF;
+  --accent-soft: #D3E6EA; /* selected mode tile */
+  --warm: #9A4A0B;        /* location — the most sensitive finding */
+  --on-warm: #FFFFFF;
+  --warm-soft: #F8E7D2;
+  --mark: #FAE8CF;        /* marker behind a found value — ink on it 14.5:1 */
+  --on-mark: #0E1C1F;
+  --ok: #1F7A4D;          /* removed / done */
+  --on-ok: #FFFFFF;
+  --danger: #B3261E;      /* real errors only; never to scare */
+  --shadow: 0 1px 0 rgba(14, 28, 31, .04), 0 24px 48px -36px rgba(14, 28, 31, .35);
+  --shadow-photo: 0 40px 80px -50px rgba(14, 28, 31, .7);
+  --scrim: rgba(5, 14, 16, .45);
+
+  /* type */
+  --font-text: 'Onest', system-ui, sans-serif;
+  --font-display: 'Unbounded', system-ui, sans-serif;  /* hero headline and big numbers only */
+  --fs-root: clamp(16px, 0.32vw + 14.8px, 20px);        /* grows on big monitors instead of stretching the layout */
+  --fs-hero: clamp(1.7rem, 10cqi, 4.2rem);              /* sized to its own column (container query) */
+  --fs-h1: clamp(1.6rem, 1.15rem + 1.5vw, 2.4rem);      /* Onest 700, tracking -.03em */
+  --fs-body: 1rem;      /* line-height 1.5 */
+  --fs-small: .88rem;
+  --fs-tiny: .8rem;     /* never smaller */
+  --fw-text: 400; --fw-medium: 500; --fw-strong: 600; --fw-title: 700;
+
+  /* shape & space (4-pt rhythm) */
+  --r-btn: 999px; --r-card: 28px; --r-photo: 30px; --r-tile: 18px; --r-icon: 12px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 72px;
+  --gutter: clamp(16px, 4vw, 56px);
+  --maxw: 1280px;
+  --tap: 44px;          /* minimum touch target; primary buttons are 56px */
+
+  /* motion — transform/opacity only; everything collapses under prefers-reduced-motion */
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-spring: cubic-bezier(.2, 1.4, .4, 1);
+  --t-press: 140ms;     /* button scale .965 */
+  --t-state: 250ms;     /* toggles, mode tiles, checkboxes */
+  --t-enter: 320ms;     /* page/view transition in (out is 180ms) */
+  --t-mark: 450ms;      /* marker in / out */
+  --t-wash: 1200ms;     /* light band across the photo on clean */
+  --stagger: 110ms;     /* list rows */
+
+  /* layers */
+  --z-dock: 20; --z-sheet: 50; --z-sheet-dock: 60; --z-toast: 90;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B1517; --surface: #132124; --surface-2: #1B2D31; --ink: #E6F0F1; --muted: #9AAFB3;
+    --line: #20343A; --line-strong: #36505A; --hover: rgba(230, 240, 241, .07);
+    --accent: #7DCFE0; --on-accent: #0B1517; --accent-soft: #173840;
+    --warm: #F2A65A; --on-warm: #132124; --warm-soft: #33261A; --mark: #4A3418; --on-mark: #F6E7D3;
+    --ok: #6EDAA4; --on-ok: #0B1517; --danger: #FF9C92;
+    --shadow: 0 0 0 1px var(--line); --shadow-photo: 0 30px 60px -40px rgba(0, 0, 0, .8);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B1517; --surface: #132124; --surface-2: #1B2D31; --ink: #E6F0F1; --muted: #9AAFB3;
+  --line: #20343A; --line-strong: #36505A; --hover: rgba(230, 240, 241, .07);
+  --accent: #7DCFE0; --on-accent: #0B1517; --accent-soft: #173840;
+  --warm: #F2A65A; --on-warm: #132124; --warm-soft: #33261A; --mark: #4A3418; --on-mark: #F6E7D3;
+  --ok: #6EDAA4; --on-ok: #0B1517; --danger: #FF9C92;
+  --shadow: 0 0 0 1px var(--line); --shadow-photo: 0 30px 60px -40px rgba(0, 0, 0, .8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-press: 0ms; --t-state: 0ms; --t-enter: 0ms; --t-mark: 0ms; --t-wash: 0ms; --stagger: 0ms; }
+}

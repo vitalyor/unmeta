@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unmeta · эмодзи → иконки</title>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400..700&family=Unbounded:wght@500&display=swap" rel="stylesheet">
+<style>
+/* Before/after for the owner: emoji from the brief vs the icon set used in all mockups. Tokens = direction D. */
+:root { --bg: #E8EEED; --surface: #FFFFFF; --surface-2: #DCE5E4; --ink: #0E1C1F; --muted: #4B5C60; --line: #E0E7E6; --accent: #0A5F73; --on-accent: #fff; --accent-soft: #D3E6EA; --warm: #9A4A0B; --mark: #FAE8CF; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0B1517; --surface: #132124; --surface-2: #1B2D31; --ink: #E6F0F1; --muted: #9AAFB3; --line: #20343A; --accent: #7DCFE0; --on-accent: #0B1517; --accent-soft: #173840; --warm: #F2A65A; --mark: #4A3418; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Onest, system-ui, sans-serif; }
+main { width: min(100% - 32px, 1200px); margin: 0 auto; padding: 32px 0 64px; }
+h1 { font: 500 clamp(1.5rem, 1rem + 2vw, 2.4rem)/1.1 Unbounded, sans-serif; letter-spacing: -.03em; margin: 0 0 8px; }
+.lead { color: var(--muted); max-width: 70ch; margin: 0 0 28px; }
+.cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.col { background: var(--surface); border-radius: 28px; padding: 22px; }
+.col h2 { font-size: 1.05rem; margin: 0 0 4px; } .col .why { color: var(--muted); font-size: .9rem; margin: 0 0 16px; }
+.tag { display: inline-block; font-size: .78rem; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: var(--surface-2); margin-bottom: 10px; }
+.col.after .tag { background: var(--accent); color: var(--on-accent); }
+h3 { font-size: .85rem; color: var(--muted); font-weight: 500; margin: 18px 0 6px; }
+/* in-context: mode tiles + report rows */
+.modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mode { display: grid; gap: 8px; padding: 12px; border-radius: 18px; background: var(--bg); font-weight: 600; font-size: .9rem; }
+.mode.on { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.mi { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--surface); font-size: 20px; line-height: 1; }
+.mode.on .mi { background: var(--accent); color: var(--on-accent); }
+.row { display: grid; grid-template-columns: auto 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); align-items: start; }
+.ri { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-2); font-size: 20px; line-height: 1; }
+.row.geo .ri { background: var(--warm); color: var(--surface); }
+.row b { display: block; font-weight: 600; } .row span { font-size: .9rem; background: var(--mark); border-radius: 4px; padding: 0 4px; margin-left: -4px; }
+.btn { display: inline-flex; gap: 8px; align-items: center; min-height: 48px; padding: 0 20px; border-radius: 99px; background: var(--accent); color: var(--on-accent); font-weight: 600; margin-top: 14px; }
+/* full set */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.cell { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--bg); font-size: .85rem; min-width: 0; }
+.cell .e { font-size: 22px; line-height: 1; width: 24px; text-align: center; flex: none; }
+.ic { width: 22px; height: 22px; flex: none; }
+.mi .ic, .ri .ic { width: 20px; height: 20px; }
+.btn .ic { width: 20px; height: 20px; }
+.src { color: var(--muted); font-size: .78rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>Эмодзи → иконки</h1>
+<p class="lead">Слева то, что было задумано в брифе: эмодзи. Каждая система рисует их по-своему (iOS, Android, Windows), и выглядят они как «сайт, собранный ИИ». Справа то, что теперь стоит во всех макетах: один набор <b>Lucide</b> (лицензия ISC), одна сетка 24 px, одна толщина линии, цвет берётся из текста. Подпись всегда стоит рядом, иконка её только дополняет.</p>
+<div class="cols" id="cols"></div>
+</main>
+<script src="icons.js"></script>
+<script src="copy.js"></script>
+<script>
+const T = COPY.ru, I = window.UM_ICONS;
+const ic = (n) => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+// emoji exactly as the brief / TONE.md listed them
+const MODES = [['maximum', '🛡', 'shield'], ['balanced', '⚖️', 'scale'], ['privateOnly', '📍', 'private'], ['custom', '🎛', 'sliders']];
+const CATS = [['location', '📍'], ['device', '📱'], ['dates', '🕒'], ['author', '👤'], ['software', '🛠'], ['thumbnails', '🖼'], ['descriptions', '💬'], ['c2pa', '🔏'], ['filename', '📛']];
+const UI = [['Очистить', '🧹', 'eraser'], ['Скачать', '⬇️', 'download'], ['Поделиться', '📤', 'share'], ['Готово', '✅', 'check'], ['Не умеем чистить', 'ℹ️', 'info'], ['Файлы не покидают устройство', '🔒', 'lock'], ['Выбрать файлы', '📂', 'upload'], ['Тёмная тема', '🌙', 'moon']];
+const ROWS = [['location', 'Координаты места съёмки'], ['device', 'Apple iPhone 15 Pro'], ['dates', '12 мая 2026, 18:42']];
+const side = (emoji) => {
+  const g = (k, e) => (emoji ? `<span class="e">${e}</span>` : ic(k));
+  return `<div class="col ${emoji ? 'before' : 'after'}">
+    <span class="tag">${emoji ? 'Было — эмодзи из брифа' : 'Стало — иконки Lucide'}</span>
+    <h2>${emoji ? 'Каждая система рисует по-своему' : 'Один набор, одна линия, один цвет'}</h2>
+    <p class="why">${emoji ? 'Цветные, разного веса, спорят с текстом и акцентным цветом.' : 'Спокойные, подстраиваются под тему и акцент, одинаковые везде.'}</p>
+    <h3>Режим очистки</h3>
+    <div class="modes">${MODES.map(([k, e, i], n) => `<div class="mode ${n === 0 ? 'on' : ''}"><span class="mi">${g(i, e)}</span>${T.modes[k].name}</div>`).join('')}</div>
+    <h3>Что нашли</h3>
+    ${ROWS.map(([k, v]) => `<div class="row ${k === 'location' ? 'geo' : ''}"><span class="ri">${g(k, CATS.find((c) => c[0] === k)[1])}</span><div><b>${T.categories[k].name}</b><span>${v}</span></div></div>`).join('')}
+    <span class="btn">${g('eraser', '🧹')}Очистить</span>
+    <h3>Все категории</h3>
+    <div class="grid">${CATS.map(([k, e]) => `<div class="cell">${g(k, e)}<span>${T.categories[k].name}</span></div>`).join('')}</div>
+    <h3>Кнопки и статусы</h3>
+    <div class="grid">${UI.map(([l, e, i]) => `<div class="cell">${g(i, e)}<span>${l}</span></div>`).join('')}</div>
+  </div>`;
+};
+document.getElementById('cols').innerHTML = side(true) + side(false);
+</script>
+</body>
+</html>
