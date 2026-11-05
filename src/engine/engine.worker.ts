@@ -63,7 +63,12 @@ async function clean(file: File, kind: Kind, keep: Category[]): Promise<Uint8Arr
   }
 }
 
-self.onmessage = async ({ data: req }: MessageEvent<Req>) => {
+// One Perl interpreter = one job at a time: overlapping evals share its output buffer, and a read that ran
+// alongside the warm-up came back empty — the report said "nothing found" for a photo with GPS. Queue them.
+let queue: Promise<unknown> = Promise.resolve();
+self.onmessage = ({ data: req }: MessageEvent<Req>) => { queue = queue.then(() => handle(req)); };
+
+async function handle(req: Req) {
   try {
     if (req.op === 'read') {
       postMessage({ id: req.id, tags: await read(req.file, req.kind) } satisfies Res);
@@ -76,4 +81,4 @@ self.onmessage = async ({ data: req }: MessageEvent<Req>) => {
   } catch (e) {
     postMessage({ id: req.id, error: e instanceof Error ? e.message : String(e) } satisfies Res);
   }
-};
+}

@@ -109,3 +109,16 @@ describe('other kinds', () => {
     expect(cleanName('README', ['filename'], 'file_01')).toBe('README_clean');
   });
 });
+
+describe('concurrency', () => {
+  it('parallel requests never mix up answers (warm-up racing a real file)', async () => {
+    const files = await Promise.all(['photo.jpg', 'notes.txt', 'photo.png', 'doc.pdf', 'photo.heic'].map(load));
+    const reports = await Promise.all(files.map((f) => inspect(f)));
+    expect(Object.keys(reports[0].found)).toContain('location');
+    expect(Object.keys(reports[2].found)).toContain('location');
+    expect(Object.keys(reports[3].found)).toContain('author');
+    expect(Object.keys(reports[4].found)).toContain('location');
+    const cleaned = await Promise.all([clean(files[0], PRESETS.max, 'a'), clean(files[2], PRESETS.max, 'b'), clean(files[4], PRESETS.max, 'c')]);
+    for (const c of cleaned) expect(c.after.found).toEqual({});
+  });
+});

@@ -33,6 +33,8 @@ const csp = { name: 'csp', apply: 'build' as const,
   transformIndexHtml: () => [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP }, injectTo: 'head-prepend' as const }] };
 
 export default defineConfig({
+  // GitHub Pages serves the site at /unmeta/; BASE=/ for a custom domain later
+  base: process.env.BASE ?? '/',
   plugins: [svelte(), csp],
   // Engines resolve their .wasm via import.meta.url / ?url; pre-bundling breaks that.
   optimizeDeps: { exclude: ['@6over3/zeroperl-ts', '@ffmpeg/ffmpeg', '@ffmpeg/util'] },

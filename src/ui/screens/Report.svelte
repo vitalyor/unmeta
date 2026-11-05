@@ -16,6 +16,7 @@
   <button type="button" class="btn btn-primary btn-clean {cls}" class:is-busy={app.cleaning} aria-busy={app.cleaning} disabled={app.cleaning} onclick={cleanCurrent}><Icon name="eraser" /><span>{t('actions.clean')}</span></button>
 {/snippet}
 
+{#if it}
 <section class="screen s-report">
   <div class="pane pane-file">
     <figure class="photo" style="view-transition-name:hero"><Thumb {it} /></figure>
@@ -34,3 +35,4 @@
   </div>
   <div class="dock"><ModeChip />{@render cleanBtn('')}</div>
 </section>
+{/if}

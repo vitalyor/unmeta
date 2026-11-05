@@ -51,7 +51,9 @@ export async function go(fn: () => void, dir: 'fwd' | 'back' = 'fwd') {
   const doc = document as Document & { startViewTransition?: (cb: () => Promise<void>) => unknown };
   if (!doc.startViewTransition || RM()) { fn(); return; }
   document.documentElement.dataset.nav = dir;
-  doc.startViewTransition(async () => { fn(); await tick(); });
+  // a newer transition aborts the running one — expected, not an error
+  const vt = doc.startViewTransition(async () => { fn(); await tick(); }) as { finished?: Promise<void>; ready?: Promise<void>; updateCallbackDone?: Promise<void> };
+  for (const p of [vt.finished, vt.ready, vt.updateCallbackDone]) p?.catch(() => {});
 }
 
 export function toast(msg: string) { app.toast = msg; app.toastKey++; }

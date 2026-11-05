@@ -5,7 +5,8 @@
   import { t } from '../i18n.svelte';
   import { app, item, save, home, mobile, go } from '../store.svelte';
   const it = $derived(item()!);
-  const r = $derived(it.result!);
+  // the item can change under a running screen transition (new files dropped): render only with a result
+  const r = $derived(it?.result ?? { name: '', notes: [], before: { kind: 'image', tags: [], found: {} }, after: { kind: 'image', tags: [], found: {} }, blob: new Blob() });
   const phone = mobile();
   // honest notes from the engine: what couldn't be removed (RAW MakerNotes, video keep-limits)
   const leftover = $derived(r.notes.flatMap((n) => (n.startsWith('raw-kept:') ? n.slice(9).split(',') : [])).filter((c) => c !== 'device' && c !== 'thumbnails'));
@@ -21,6 +22,7 @@
   </button>
 {/snippet}
 
+{#if it?.result}
 <section class="screen s-after view-{app.view}">
   <div class="pane pane-file">
     <figure class="photo" style="view-transition-name:hero"><Thumb {it} /></figure>
@@ -56,3 +58,4 @@
   </div>
   <div class="dock">{@render getBtn('btn-block')}</div>
 </section>
+{/if}

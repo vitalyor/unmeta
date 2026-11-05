@@ -18,7 +18,7 @@
   </div>
   <div class="stage drop" role="button" tabindex="0" aria-label={t('a11y.dropzone')} onclick={phone ? pickMedia : pick}
     onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (phone ? pickMedia : pick)(); } }}>
-    <figure class="photo" style="view-transition-name:hero"><img src="/example.jpg" alt="" decoding="async" /></figure>
+    <figure class="photo" style="view-transition-name:hero"><img src="{import.meta.env.BASE_URL}example.jpg" alt="" decoding="async" /></figure>
     <div class="label" aria-hidden="true">
       <div class="label-head"><span class="label-name">IMG_4821.JPG</span><span class="label-note">{t('start.labelNote')}</span></div>
       <dl>

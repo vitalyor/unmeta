@@ -43,13 +43,17 @@
   }
 
   async function demo() {
-    const blob = await (await fetch('/example.jpg')).blob();
+    const blob = await (await fetch(import.meta.env.BASE_URL + 'example.jpg')).blob();
     addFiles([new File([blob], 'IMG_4821.JPG', { type: 'image/jpeg' })]);
   }
   const showPrivacy = () => go(() => { app.screen = 'privacy'; });
 
   // start fetching/compiling the photo engine once the page has painted
-  $effect(() => { const id = requestIdleCallback?.(() => warmUp()) ?? setTimeout(warmUp, 800); return () => cancelIdleCallback?.(id as number); });
+  // Safari has no requestIdleCallback (referencing it bare throws there)
+  $effect(() => {
+    if ('requestIdleCallback' in window) { const id = window.requestIdleCallback(() => warmUp()); return () => window.cancelIdleCallback(id); }
+    const id = setTimeout(warmUp, 800); return () => clearTimeout(id);
+  });
 
   // body classes the stylesheet keys its motion on (as in the mockups)
   $effect(() => {
@@ -72,7 +76,7 @@
   onkeydown={(e) => { if (e.key === 'Escape' && app.modeOpen) app.modeOpen = false; }} />
 <div id="app">
   <header class="top">
-    <a class="brand" href="/" aria-label="Unmeta" onclick={(e) => { e.preventDefault(); home(); }}><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Unmeta</span></a>
+    <a class="brand" href={import.meta.env.BASE_URL} aria-label="Unmeta" onclick={(e) => { e.preventDefault(); home(); }}><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Unmeta</span></a>
     <div class="top-tools">
       <button type="button" class="tool" aria-label="{t('settings.language')}: {i18n.lang === 'ru' ? 'English' : 'Русский'}" onclick={() => setLang(i18n.lang === 'ru' ? 'en' : 'ru')}><span>{i18n.lang === 'ru' ? 'EN' : 'RU'}</span></button>
       <button type="button" class="tool" aria-label={t('settings.theme')} onclick={toggleTheme}><Icon name={dark ? 'sun' : 'moon'} /></button>
