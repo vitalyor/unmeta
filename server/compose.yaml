@@ -1,0 +1,25 @@
+# Local Bot API server (files up to 2 GB, exchanged by path) + the bot. Nothing is exposed to the internet:
+# both only talk out to Telegram. Secrets live in .env next to this file (see .env.example).
+services:
+  bot-api:
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - data:/var/lib/telegram-bot-api
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BOT_API: http://bot-api:8081
+      WORK_DIR: /var/lib/telegram-bot-api/work
+      SETTINGS_FILE: /var/lib/telegram-bot-api/settings.json
+    volumes:
+      - data:/var/lib/telegram-bot-api
+    depends_on:
+      - bot-api
+volumes:
+  data:

@@ -10,7 +10,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:server": "vite build --config vite.server.config.ts",
+    "test:server": "node --test server/engine.test.mjs"
   },
   "dependencies": {
     "@6over3/zeroperl-ts": "^1.0.10",
