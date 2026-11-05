@@ -26,8 +26,14 @@ function decodes(_ctx: unknown, name: string, b64: string): string {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+// Production only (dev needs the HMR websocket): no request may leave this origin.
+const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; " +
+  "img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
+const csp = { name: 'csp', apply: 'build' as const,
+  transformIndexHtml: () => [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP }, injectTo: 'head-prepend' as const }] };
+
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), csp],
   // Engines resolve their .wasm via import.meta.url / ?url; pre-bundling breaks that.
   optimizeDeps: { exclude: ['@6over3/zeroperl-ts', '@ffmpeg/ffmpeg', '@ffmpeg/util'] },
   worker: { format: 'es' },

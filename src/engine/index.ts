@@ -6,6 +6,7 @@ import type { Req, Res } from './engine.worker';
 
 export { CATEGORIES, PRESETS, type Category, type PresetId, type Tag } from './categories';
 export type { Kind } from './detect';
+export { loadAv, avLoaded } from './av';
 
 export interface Report {
   kind: Kind;

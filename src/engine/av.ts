@@ -8,11 +8,32 @@ import { ext } from './detect';
 import type { Category, Tag } from './categories';
 
 let ffmpeg: Promise<FFmpeg> | null = null;
-const load = () => (ffmpeg ??= (async () => {
-  const f = new FFmpeg();
-  await f.load({ coreURL, wasmURL });
-  return f;
-})());
+let loaded = false;
+export const avLoaded = () => loaded;
+// Uncompressed size of @ffmpeg/core 0.12.10's wasm: with gzip/brotli the stream length isn't known up front.
+const WASM_BYTES = 32_232_419;
+
+/** Download (with progress) and start ffmpeg once; later calls reuse it. */
+export function loadAv(onProgress?: (done: number, total: number) => void): Promise<FFmpeg> {
+  return (ffmpeg ??= (async () => {
+    const res = await fetch(wasmURL);
+    if (!res.ok || !res.body) throw new Error('tool-load-failed');
+    const total = res.headers.get('content-encoding') ? WASM_BYTES : Number(res.headers.get('content-length')) || WASM_BYTES;
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let done = 0;
+    for (const reader = res.body.getReader(); ;) {
+      const { value, done: end } = await reader.read();
+      if (end) break;
+      chunks.push(value); done += value.length; onProgress?.(Math.min(done, total), total);
+    }
+    const blobURL = URL.createObjectURL(new Blob(chunks, { type: 'application/wasm' }));
+    const f = new FFmpeg();
+    await f.load({ coreURL, wasmURL: blobURL });
+    loaded = true;
+    return f;
+  })().catch((e) => { ffmpeg = null; throw e; }));
+}
+const load = () => loadAv();
 
 // Re-add values of kept categories (ffmpeg writes them as standard container tags).
 function keptTags(tags: Tag[], keep: Category[]): string[] {
