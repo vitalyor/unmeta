@@ -49,6 +49,11 @@ fs.addFile('/src', readFileSync(`${TMP}p2.jpg`));
 await perl.eval(`my $et = Image::ExifTool->new; open my $h, '<', '/thumb'; binmode $h; local $/; my $t = <$h>; $et->SetNewValue('ThumbnailImage', \\$t); $et->WriteInfo('/src', '/dst') or die;`);
 writeFileSync(`${DIR}photo.jpg`, fs.lookup('/dst').content); fs.removeFile('/src'); fs.removeFile('/dst');
 await tag(`${TMP}p.png`, `${DIR}photo.png`, PHOTO);
+// >1 MB: exercises the skeleton path (metadata-only rewrite + original image data spliced back)
+ff('-f', 'lavfi', '-i', 'nullsrc=size=1400x1400,geq=random(1)*255:random(2)*255:128', '-frames:v', '1', '-q:v', '2', `${TMP}big.jpg`);
+ff('-f', 'lavfi', '-i', 'nullsrc=size=700x700,geq=random(1)*255:random(2)*255:128', '-frames:v', '1', `${TMP}big.png`);
+await tag(`${TMP}big.jpg`, `${DIR}photo-big.jpg`, PHOTO);
+await tag(`${TMP}big.png`, `${DIR}photo-big.png`, PHOTO);
 await tag(`${TMP}p.tif`, `${DIR}photo.tif`, PHOTO);
 await tag(`${TMP}p.heic`, `${DIR}photo.heic`, PHOTO);
 await tag(`${TMP}p.gif`, `${DIR}photo.gif`, [['XMP-dc:Creator', 'Ivan Petrov'], ['Comment', 'UNMETASECRET']]);

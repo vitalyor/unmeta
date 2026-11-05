@@ -11,7 +11,7 @@ export function ext(name: string): string {
   return i > 0 ? name.slice(i + 1).toLowerCase() : '';
 }
 
-/** `head` = first 64 bytes of the file. */
+/** `head` = first 192 bytes of the file. */
 export function detect(name: string, head: Uint8Array): Kind {
   const e = ext(name);
   const b = head;
@@ -36,6 +36,10 @@ export function detect(name: string, head: Uint8Array): Kind {
   if (ascii(b, 0, 4) === 'fLaC' || ascii(b, 0, 4) === 'OggS') return 'av';
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'av'; // Matroska / WebM
   if (ascii(b, 0, 4) === 'FORM' && /^(AIFF|AIFC)$/.test(ascii(b, 8, 4))) return 'av';
+  if (b[0] === 0x30 && b[1] === 0x26 && b[2] === 0xb2 && b[3] === 0x75) return 'av'; // ASF: wmv, wma
+  if ((b[0] === 0x47 && b[188] === 0x47) || (/^(mts|m2ts|ts)$/.test(e) && (b[0] === 0x47 || b[4] === 0x47))) return 'av'; // MPEG-TS / AVCHD (a lone 0x47 is just 'G')
+  if (b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0xba) return 'av'; // MPEG-PS (.mpg/.vob)
+  if (ascii(b, 0, 4) === '8BPS') return 'image'; // Photoshop PSD/PSB (ExifTool writes it)
   if (b[0] === 0x50 && b[1] === 0x4b && OFFICE.test(e)) return 'office'; // zip-based docs
   if (RAW.test(e)) return 'raw';
   if (e === 'svg' || /<svg[\s>]/i.test(ascii(b, 0, b.length))) return 'svg';

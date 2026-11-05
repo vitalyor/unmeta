@@ -29,6 +29,8 @@ const b64 = async (blob: Blob) => { const s = latin1(new Uint8Array(await blob.a
 const EXPECT: Record<string, Category[]> = {
   'photo.jpg': ['location', 'device', 'author', 'software', 'thumbnails', 'dates', 'descriptions'],
   'photo.png': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
+  'photo-big.jpg': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
+  'photo-big.png': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
   'photo.tif': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
   'photo.heic': ['location', 'device', 'author', 'software', 'dates', 'descriptions'],
   'photo.gif': ['author'],
@@ -61,7 +63,7 @@ describe('maximum preset removes every planted secret and keeps files valid', ()
       const text = await deepText(r.blob);
       for (const s of SECRETS) expect(text.includes(s), `${name}: "${s}" left somewhere`).toBe(false);
       expect(await commands.decodes(name, await b64(r.blob))).toBe('ok');
-      if (/^photo\.(jpg|png|tif|heic)$/.test(name)) expect(r.after.tags.find((t) => t.name === 'Orientation')?.value).toBe('Rotate 90 CW');
+      if (/^photo(-big)?\.(jpg|png|tif|heic)$/.test(name)) expect(r.after.tags.find((t) => t.name === 'Orientation')?.value).toBe('Rotate 90 CW');
       if (/^video\.(mp4|mov)$/.test(name)) expect(r.after.tags.find((t) => t.name === 'Rotation')?.value).toBe('90');
       console.log(`${name}: ${ms.toFixed(0)} ms, ${file.size} → ${r.blob.size} B`);
     });

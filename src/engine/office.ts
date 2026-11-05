@@ -77,7 +77,11 @@ export async function cleanOffice(bytes: Uint8Array, keep: Category[], cleanImag
       for (const [c, re] of Object.entries(ODF) as [Category, RegExp][]) if (!has(keep, c)) s = s.replace(re, '');
       return s.replace(/<meta:user-defined\b[^>]*>[\s\S]*?<\/meta:user-defined>/g, '');
     });
-    if (!has(keep, 'thumbnails')) delete files['Thumbnails/thumbnail.png'];
+    if (!has(keep, 'thumbnails') && files['Thumbnails/thumbnail.png']) {
+      delete files['Thumbnails/thumbnail.png'];
+      // the manifest must not list a part that's gone, or LibreOffice reports the file as damaged
+      xml('META-INF/manifest.xml', (s) => s.replace(/<manifest:file-entry[^>]*manifest:full-path="Thumbnails\/[^"]*"[^>]*\/>/g, ''));
+    }
     if (!has(keep, 'author')) {
       // comments and tracked changes carry author names and dates
       for (const p of ['content.xml', 'styles.xml']) xml(p, (s) => s
@@ -94,6 +98,8 @@ export async function cleanOffice(bytes: Uint8Array, keep: Category[], cleanImag
     xml('docProps/app.xml', (s) => {
       if (!has(keep, 'author')) s = s.replace(APP_AUTHOR, '');
       if (!has(keep, 'software')) s = s.replace(APP_SOFTWARE, '');
+      // TitlesOfParts repeats the document title (docx) — optional, Office rebuilds it on save
+      if (!has(keep, 'descriptions')) s = s.replace(/<(TitlesOfParts|HeadingPairs)\b[\s\S]*?<\/\1>/g, '');
       return s;
     });
     // custom properties: arbitrary, often org-identifying (DMS ids, client names) — always out

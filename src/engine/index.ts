@@ -1,7 +1,23 @@
 // Public engine API for the UI: inspect a file, clean it, verify the result.
 import { detect, ext, type Kind } from './detect';
 import { classify, CATEGORIES, type Category, type Tag } from './categories';
+
+const UNREMOVABLE = new Set(['Photoshop:LayerModifyDates']); // PSD layer edit dates: read-only in ExifTool
+const classifyName = (t: Tag) => classify(t) ?? 'other';
+const BYTE_SCAN_MAX = 512 * 1024 ** 2;
+
+/** Removed values (distinctive ones) that still occur anywhere in the output bytes. */
+async function bytesLeft(blob: Blob, before: Report, after: Report, keep: Category[]): Promise<Tag[]> {
+  const kept = after.tags.map((t) => t.value).join('\n');
+  const cands = CATEGORIES.filter((c) => c !== 'filename' && !keep.includes(c)).flatMap((c) => before.found[c] ?? [])
+    .filter((t) => t.value.length >= 8 && !/^[\d\s:.,+\-/()]+$/.test(t.value) && t.value !== '(binary)' && !kept.includes(t.value) && !/ \((image|file)\d*\.\w+\)$/.test(t.value));
+  if (!cands.length) return [];
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const enc = new TextEncoder();
+  return cands.filter((t) => indexOfBytes(bytes, enc.encode(t.value)) >= 0);
+}
 import { cleanAv, probeAv, AV_KEEPABLE } from './av';
+import { indexOfBytes } from './skeleton';
 import type { Req, Res } from './engine.worker';
 
 export { CATEGORIES, PRESETS, type Category, type PresetId, type Tag } from './categories';
@@ -17,10 +33,16 @@ export interface Report {
 export interface Cleaned { blob: Blob; name: string; before: Report; after: Report; notes: string[] }
 
 // ponytail: one worker; parallel pool when batch timing on real phones says so
+// The worker is recycled after RECYCLE_BYTES of input: Blobs it was handed stay alive until its GC runs, and GC
+// ignores Blob sizes — after ~1.5 GB of big files in a row every new read failed ("Failed to fetch").
+const RECYCLE_BYTES = 1024 ** 3;
 let worker: Worker | null = null;
-let seq = 0;
+let seq = 0, fed = 0;
 const pending = new Map<number, (r: Res) => void>();
-function call(msg: Omit<Req, 'id'>): Promise<Res> {
+type Body = Req extends infer R ? (R extends Req ? Omit<R, 'id'> : never) : never; // Omit per union member
+function call(msg: Body): Promise<Res> {
+  if (worker && fed > RECYCLE_BYTES && !pending.size) { worker.terminate(); worker = null; fed = 0; }
+  fed += 'file' in msg ? msg.file.size : 0;
   worker ??= Object.assign(new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' }), {
     onmessage: ({ data }: MessageEvent<Res>) => { pending.get(data.id)?.(data); pending.delete(data.id); },
   });
@@ -32,7 +54,7 @@ function call(msg: Omit<Req, 'id'>): Promise<Res> {
 export function warmUp() { void call({ op: 'read', file: new File(['x'], 'warm.txt'), kind: 'text' }); }
 
 export async function kindOf(file: File): Promise<Kind> {
-  return detect(file.name, new Uint8Array(await file.slice(0, 64).arrayBuffer()));
+  return detect(file.name, new Uint8Array(await file.slice(0, 192).arrayBuffer()));
 }
 
 export async function inspect(file: File, kind?: Kind): Promise<Report> {
@@ -91,13 +113,31 @@ export async function clean(file: File, keep: Category[], neutral: string, onPro
   if (before.kind === 'av') {
     const dropped = keep.filter((c) => !AV_KEEPABLE.includes(c) && before.found[c]);
     if (dropped.length) notes.push(`av-cannot-keep:${dropped.join(',')}`);
-    blob = await cleanAv(file, before.tags, keep, onProgress);
+    blob = await cleanAv(file, before.tags, keep, onProgress, async (bytes, n) => {
+      const r = await call({ op: 'clean', file: new File([bytes as Uint8Array<ArrayBuffer>], n), kind: 'image', keep });
+      if (r.error) throw new Error(r.error);
+      return r.bytes!;
+    });
   } else {
     const r = await call({ op: 'clean', file, kind: before.kind, keep });
     if (r.error) throw new Error(r.error);
     blob = new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: file.type });
   }
   const after = await inspect(new File([blob], name, { type: file.type }), before.kind);
+  // Byte-level check for pictures: every removed value must be gone from the whole file, not only from what
+  // ExifTool parses (PSD smart objects embed whole documents with their own XMP; ExifTool doesn't see them).
+  if (before.kind === 'image' && blob.size <= BYTE_SCAN_MAX) {
+    const left = await bytesLeft(blob, before, after, keep);
+    if (left.length) {
+      if (/^8BPS/.test(String.fromCharCode(...new Uint8Array(await blob.slice(0, 4).arrayBuffer())))) notes.push(`raw-kept:${[...new Set(left.map((t) => classifyName(t)))].join(',')}`);
+      else throw new Error(`verify-failed:bytes [${left.map((t) => `${t.group1}:${t.name}`).join(' | ')}]`);
+    }
+  }
+  // Fields no tool can rewrite in place (read-only even for ExifTool): reported as left, not a failure.
+  const stuck = after.tags.filter((t) => UNREMOVABLE.has(`${t.group1}:${t.name}`));
+  for (const c of CATEGORIES) if (after.found[c]) after.found[c] = after.found[c]!.filter((t) => !stuck.includes(t));
+  for (const c of CATEGORIES) if (after.found[c] && !after.found[c]!.length) delete after.found[c];
+  if (stuck.length) notes.push(`raw-kept:${[...new Set(stuck.map((t) => classifyName(t)))].join(',')}`);
   const leaked = removed(after);
   if (leaked.length) {
     const detail = leaked.flatMap((c) => after.found[c]!.map((t) => `${t.group1}:${t.name}=${t.value}`)).join(' | ');

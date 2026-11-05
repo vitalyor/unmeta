@@ -3,6 +3,8 @@ import { tick } from 'svelte';
 import { zipSync } from 'fflate';
 import { inspect, clean, kindOf, loadAv, avLoaded, CATEGORIES, type Category, type Kind, type Report, type Cleaned } from '../engine';
 import { t } from './i18n.svelte';
+import { limits } from './limits';
+export { limits };
 
 export type ModeId = 'maximum' | 'balanced' | 'privateOnly' | 'custom';
 // UI modes are "what to REMOVE" (as in the mockups); the engine takes "what to keep".
@@ -53,16 +55,6 @@ export async function go(fn: () => void, dir: 'fwd' | 'back' = 'fwd') {
 }
 
 export function toast(msg: string) { app.toast = msg; app.toastKey++; }
-
-// ---------- limits: soft = warn first, hard = refuse (wasm32 + browser memory) ----------
-export function limits() {
-  const GB = 1024 ** 3;
-  const nav = navigator as Navigator & { deviceMemory?: number };
-  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  // ponytail: guesses until measured on real phones (BRIEF «Большие файлы»)
-  const soft = ios ? 1 * GB : nav.deviceMemory && mobile() ? Math.max(0.5, nav.deviceMemory / 4) * GB : 2 * GB;
-  return { soft, hard: (ios ? 2 : 3.5) * GB };
-}
 
 // ---------- intake ----------
 const PREVIEW = /^image\/(jpeg|png|webp|gif|avif|heic|heif|bmp)$/;
@@ -127,7 +119,7 @@ async function read(it: Item) {
     if (it.kind === 'av') await loadAv();
     it.report = await inspect(it.file, it.kind);
     it.status = Object.keys(it.report.found).length ? 'ready' : 'nothing';
-  } catch (e) { it.status = 'error'; it.error = String(e instanceof Error ? e.message : e); }
+  } catch (e) { const m = String(e instanceof Error ? e.message : e); it.status = CANT.test(m) ? 'unsupported' : 'error'; it.error = m; }
 }
 
 // ---------- cleaning ----------
@@ -136,7 +128,7 @@ async function cleanItem(it: Item, onProgress?: (p: number) => void) {
   try {
     it.result = await clean(it.file, keepSet(), it.neutral, onProgress);
     it.status = 'done'; it.saved = false;
-  } catch (e) { it.status = 'error'; it.error = String(e instanceof Error ? e.message : e); }
+  } catch (e) { const m = String(e instanceof Error ? e.message : e); it.status = CANT.test(m) ? 'unsupported' : 'error'; it.error = m; }
 }
 
 export async function cleanCurrent() {
@@ -157,7 +149,7 @@ export async function cleanCurrent() {
   app.progress = 1;
   await new Promise((r) => setTimeout(r, RM() ? 0 : 220));
   app.cleaning = false;
-  if (it.status === 'error') return fail(it.error);
+  if ((it.status as ItemStatus) !== 'done') return fail(it.error);
   await go(() => { app.screen = app.screen === 'msg' ? 'after' : 'after'; app.view = 'after'; app.erasing = true; });
   setTimeout(() => { app.erasing = false; }, RM() ? 0 : 2400);
 }
@@ -176,20 +168,29 @@ export async function tryBig() {
     await read(it);
     if (it.status === 'error') throw new Error(it.error);
     await cleanItem(it, (p) => { app.progress = p; });
-    if (it.status === 'error') throw new Error(it.error);
+    if ((it.status as ItemStatus) !== 'done') throw new Error(it.error); // error or "can't clean this" → fail() picks the screen
     await go(() => { app.screen = 'after'; app.view = 'after'; app.erasing = true; });
     setTimeout(() => { app.erasing = false; }, 2400);
   } catch (e) { fail(e); }
 }
 
+// Engine answers that mean "we can't do this format/file", not "something broke".
+export const CANT = /no-av-streams|not yet supported|Can't delete all|Writing of .* files|Format error|unsupported|pdf-encrypted/i;
+
 export function fail(e: unknown) {
   const msg = String(e instanceof Error ? e.message : e ?? '');
-  const it = item(); if (it) { it.status = 'error'; it.error = msg; }
+  const it = item();
+  if (it && CANT.test(msg)) { it.status = 'unsupported'; it.error = msg; go(() => { app.msg = 'unsupported'; app.screen = 'msg'; }); return; }
+  if (it) { it.status = 'error'; it.error = msg; }
   console.warn('[unmeta]', msg);
   go(() => { app.msg = 'error'; app.screen = 'msg'; });
 }
 
+// Engine answers that mean "this file is damaged or not fully downloaded".
+const CORRUPT = /Truncated|Corrupted|EOI marker|Error reading|invalid (zip|distance|block)|Failed to parse PDF|Error writing output file|Cannot read properties|unexpected end|Bad format|Not a valid/i;
+
 export function errorText(raw = ''): string {
+  if (CORRUPT.test(raw)) return t('errors.readFailed');
   if (/memory|out of bounds|allocation|RangeError/i.test(raw)) return t('errors.outOfMemory');
   if (/tool-load-failed|fetch|network/i.test(raw)) return t('errors.toolLoadFailed');
   if (/verify-failed|unsupported|pdf-encrypted/i.test(raw)) return t('errors.cleanFailed');
