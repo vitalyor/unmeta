@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { esc, metaText, offerable } from './chat.ts';
+import { esc, fileUri, metaText, offerable } from './chat.ts';
 
 const fx = (n) => fileURLToPath(new URL(`../test/fixtures/${n}`, import.meta.url));
 const dist = fileURLToPath(new URL('./dist/bot.mjs', import.meta.url));
@@ -16,11 +16,19 @@ const GROUP = { id: -100, type: 'supergroup' }, DM = { id: 7, type: 'private' },
 let tmp, srv, bot, inputs = [], calls = [], queue = [], ids = 1000, update = 1;
 
 const answer = (method, b) => {
-  calls.push({ method, ...b });
+  const call = { method, ...b };
+  calls.push(call);
   if (method === 'getMe') return { username: 'unmeta_bot' };
   if (method === 'sendMessage') return { message_id: ++ids };
   if (method === 'getFile') { const p = join(tmp, `in-${++ids}-${b.file_id}`); inputs.push(p); return copyFile(fx(b.file_id), p).then(() => ({ file_path: p })); }
-  if (method === 'sendDocument') { const p = b.document.replace('file://', ''); assert.ok(existsSync(p), 'file to send exists'); return { message_id: ++ids }; }
+  if (method === 'sendDocument') {
+    const p = decodeURIComponent(b.document.replace('file://', '')); // what the real Bot API does with the path
+    if (!existsSync(p)) throw new Error('file to send does not exist');
+    if ((statSync(dirname(p)).mode & 0o005) !== 0o005) throw new Error("can't get stat about the file"); // it runs as another user
+    call.path = p;
+    if (p.endsWith('.txt')) { const t = readFileSync(p, 'utf8'); assert.match(t, /Location|GPS/); assert.doesNotMatch(t, /GPSLatitude = \d/); assert.match(t, /Artist = /); }
+    return { message_id: ++ids };
+  }
   return true;
 };
 const send = (u) => queue.push({ update_id: update++, ...u });
@@ -88,7 +96,7 @@ test('group: "View metadata" shows values in place, keeps a clean button, hides 
   press('file:meta', doc('photo-cyrillic.jpg'), GROUP, statusId);
   const report = await until(() => of('editMessageText').find((c) => /Алина Карабер/.test(c.text)));
   assert.equal(report.message_id, statusId);
-  assert.deepEqual(report.reply_markup.inline_keyboard.flat().map((b) => b.callback_data), ['file:clean']);
+  assert.deepEqual(report.reply_markup.inline_keyboard.flat().map((b) => b.callback_data), ['file:clean', 'file:all']);
   assert.match(report.text, /Местоположение<\/b>\nесть/);
   assert.doesNotMatch(report.text, /\d+ deg|\d+\.\d{4}/);
   await settle();
@@ -101,13 +109,31 @@ test('group: "Remove metadata" replies to the file with the clean copy and leave
   const m = doc('video-cyrillic.mp4'), statusId = ++ids;
   press('file:clean', m, GROUP, statusId);
   const sent = await until(() => of('sendDocument')[0]);
-  assert.equal(basename(sent.document), 'video-cyrillic_clean.mp4');
+  assert.equal(basename(sent.path), 'video-cyrillic_clean.mp4');
   assert.equal(sent.reply_parameters.message_id, m.message_id);
   assert.match(sent.caption, /Удалено:.*Автор/);
   await until(() => of('deleteMessage').some((c) => c.message_id === statusId));
   await settle();
   assert.deepEqual((await readdir(join(tmp, 'work'))).filter((n) => n.startsWith('job-')), []);
   assert.ok(inputs.every((p) => !existsSync(p)), 'the downloaded original is deleted');
+});
+
+test('a Cyrillic name with spaces and a percent sign is sent intact', async () => {
+  calls = [];
+  const m = doc('photo-cyrillic.jpg');
+  m.document.file_name = 'Отпуск 100% #1.jpg';
+  press('file:clean', m);
+  assert.equal(basename((await until(() => of('sendDocument')[0])).path), 'Отпуск 100% #1_clean.jpg');
+});
+
+test('"All fields" sends the full list and keeps the report, coordinates stay hidden', async () => {
+  calls = [];
+  const statusId = ++ids;
+  press('file:all', doc('photo.jpg'), GROUP, statusId);
+  const sent = await until(() => of('sendDocument')[0]);
+  assert.equal(basename(sent.path), 'photo_metadata.txt');
+  await settle();
+  assert.equal(of('deleteMessage').length, 0, 'the report stays');
 });
 
 test('a double tap runs the job once', async () => {
@@ -125,7 +151,7 @@ test('group: /clean and /meta work as a reply', async () => {
   send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/meta@unmeta_bot', reply_to_message: doc('doc.pdf') } });
   await until(() => of('editMessageText').some((c) => /Что нашлось/.test(c.text)));
   send({ message: { message_id: ++ids, chat: GROUP, from: USER, text: '/clean', reply_to_message: doc('doc.pdf') } });
-  assert.equal(basename((await until(() => of('sendDocument')[0])).document), 'doc_clean.pdf');
+  assert.equal(basename((await until(() => of('sendDocument')[0])).path), 'doc_clean.pdf');
 });
 
 test('group: /clean without a file asks for one; a deleted file message is explained', async () => {
@@ -163,8 +189,13 @@ test('file checks from the message alone', () => {
 
 test('metadata is escaped: a tag value cannot inject markup or overflow Telegram', () => {
   assert.equal(esc('<b>&'), '&lt;b&gt;&amp;');
-  const t = metaText('T', ['author'], { author: [{ value: '<script>' }, { value: 'x (image1.jpg)' }, { value: 'x' }] }, (c) => c, 'yes');
+  const more = (n) => `+${n}`;
+  const t = metaText('T', ['author'], { author: [{ value: '<script>' }, { value: 'x (image1.jpg)' }, { value: 'x' }] }, (c) => c, 'yes', more);
   assert.equal(t, 'T\n\n<b>author</b>\n&lt;script&gt;\nx');
   const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`c${i}`, Array.from({ length: 5 }, (_, j) => ({ value: `${j}`.repeat(200) + '<'.repeat(80) }))]));
-  assert.ok(metaText('T', Object.keys(many), many, (c) => c, 'yes').length <= 3900);
+  const long = metaText('T', Object.keys(many), many, (c) => c, 'yes', more);
+  assert.ok(long.length <= 3900);
+  assert.match(long, /\+\d+$/, 'says that some is cut');
+  assert.equal(metaText('T', ['s'], { s: [{ name: 'Software', value: 'a' }, { name: 'IngredientsFilePath', value: 'z.mov' }] }, (c) => c, 'yes', more), 'T\n\n<b>s</b>\nz.mov\na', 'paths first');
+  assert.equal(fileUri('/w/job-1/Отпуск 100%.jpg'), 'file:///w/job-1/%D0%9E%D1%82%D0%BF%D1%83%D1%81%D0%BA%20100%25.jpg');
 });

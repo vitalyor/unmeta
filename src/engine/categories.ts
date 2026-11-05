@@ -16,13 +16,15 @@ export interface Tag { group0: string; group1: string; group2: string; name: str
 
 const SOFTWARE = /^(Software|CreatorTool|ProcessingSoftware|History.*|Producer|Encoder|EncodedBy|encoder|encoded_by|Application|AppVersion|Generator|Template|TotalTime|EditingDuration|EditingCycles|RevisionNumber|Revision|HistorySoftwareAgent|DerivedFrom.*|DocumentID|InstanceID|OriginalDocumentID|com\.apple\.quicktime\.software)$/i;
 const DESCRIPTION = /^(ImageDescription|Title|Description|Caption.*|Headline|Keywords?|Subject|UserComment|Comment|XP(Comment|Title|Subject|Keywords)|Rating.*|Label|Category|SupplementalCategories|Instructions|Notes|Lyrics|Album|Genre|Synopsis|ContentStatus)$/i;
+// Folders and names of source files (Premiere/After Effects XMP): usernames, client and project names
+const PATHS = /(File|Project|Full)Path$/i;
 // Fallbacks by name for sources without family-2 groups (ffmpeg metadata dump, Office XML).
 const AUTHOR = /^(Artist|Author|Creator|By-?line|Copyright|Rights|LastModifiedBy|InitialCreator|PrintedBy|Company|Manager|Owner.*|Publisher|Album_?Artist|Composer|Performer|Writer|CommentAuthor|RevisionAuthor|CustomProperty|com\.apple\.quicktime\.author)$/i;
 const LOCATION = /^(location.*|.*GPS.*|com\.apple\.quicktime\.location.*)$/i;
 const DEVICE = /^(Make|Model|com\.apple\.quicktime\.(make|model)|PrinterName|PrinterSetup)$/i;
 const DATE = /(date|time)$/i;
 // "No date": zeroed QuickTime times and the DOS zip epoch we write into cleaned Office files.
-const ZERO_DATE = /^(0000:00:00 00:00:00|1980:01:01 00:00:00)/;
+const ZERO_DATE = /^(0000:00:00 00:00:00|1904:01:01 00:00:00|1980:01:01 00:00:00)/; // 1904 = QuickTime's epoch
 
 /** Map one ExifTool tag to a user-facing category, or null if it reveals nothing (structure, codec, size). */
 export function classify(t: Tag): Category | null {
@@ -38,7 +40,8 @@ export function classify(t: Tag): Category | null {
   if (/^(JUMBF|C2PA)$/i.test(t.group0) || /^(JUMBF|C2PA)/i.test(t.group1)) return 'c2pa';
   if (/^(Lav[fc]|LAME|Lavu)[\d.]*(\s|$)/.test(t.value)) return null; // encoder library versions inside the stream itself, identify nobody // ffmpeg's own generic tag (our remuxer), identifies nobody
   if (t.group1 === 'PDF' && t.name === 'Creator') return 'software'; // PDF "Creator" = the app, not the person
-  if (SOFTWARE.test(t.name)) return 'software';
+  // Adobe keeps a copy of the history of every source clip in Pantry* fields
+  if (SOFTWARE.test(t.name.replace(/^Pantry/, '')) || PATHS.test(t.name)) return 'software';
   switch (t.group2) {
     case 'Location': return 'location';
     case 'Camera': case 'Device': return 'device';

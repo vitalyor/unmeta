@@ -3,7 +3,7 @@
 import { readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { clean, inspect, kindOf, fileFromPath, workDir, DiskFile, WORK, PRESETS, CATEGORIES, type PresetId } from './engine';
-import { esc, mediaOf, metaText, offerable, type Item } from './chat';
+import { allFields, esc, fileUri, mediaOf, metaText, offerable, type Item } from './chat';
 import ruCopy from '../copy/ru.json';
 import enCopy from '../copy/en.json';
 
@@ -38,6 +38,8 @@ const T = {
     offer: 'В файле <b>{name}</b> могут быть скрытые данные.',
     btnClean: 'Очистить от метаданных',
     btnMeta: 'Посмотреть метаданные',
+    btnAll: 'Все поля файлом',
+    more: '…и ещё {n}',
     reading: 'Смотрю, что внутри…',
     metaTitle: 'Что нашлось в файле:',
     found: 'есть',
@@ -66,6 +68,8 @@ const T = {
     offer: '<b>{name}</b> may contain hidden data.',
     btnClean: 'Remove metadata',
     btnMeta: 'View metadata',
+    btnAll: 'All fields as a file',
+    more: '…and {n} more',
     reading: 'Looking inside…',
     metaTitle: 'Found in this file:',
     found: 'present',
@@ -103,9 +107,9 @@ const drop = (chat: number, id: number) => tg('deleteMessage', { chat_id: chat, 
 let chain: Promise<unknown> = Promise.resolve();
 let waiting = 0;
 const busy = new Set<number>(); // status messages being worked on: a double tap must not run a job twice
-type Job = { action: 'clean' | 'meta'; chat: number; reply: number; l: Lang; user: number; item: Item; status?: number };
+type Job = { action: 'clean' | 'meta' | 'all'; chat: number; reply: number; l: Lang; user: number; item: Item; status?: number };
 const offerKeyboard = (l: Lang, buttons: Job['action'][] = ['clean', 'meta']) => ({
-  inline_keyboard: buttons.map((a) => [{ text: a === 'clean' ? T[l].btnClean : T[l].btnMeta, callback_data: `file:${a}` }]),
+  inline_keyboard: buttons.map((a) => [{ text: a === 'clean' ? T[l].btnClean : a === 'all' ? T[l].btnAll : T[l].btnMeta, callback_data: `file:${a}` }]),
 });
 // Jobs run one at a time, so everything in the work folder belongs to the job that just ended (even if it failed).
 const sweep = async () => { for (const n of await readdir(WORK).catch(() => [] as string[])) if (n.startsWith('job-')) await rm(join(WORK, n), { recursive: true, force: true }); };
@@ -147,13 +151,18 @@ async function work({ action, chat, reply, l, user, item }: Job, st?: number): P
     if (kind === 'unsupported') return void await say(chat, T[l].unsupported, reply), false;
     if (kind === 'text') return void await say(chat, T[l].text, reply), false;
     if (kind !== 'av' && file.size > MAX_IN_MEMORY) return void await say(chat, T[l].tooBigDoc, reply), false;
-    if (action === 'meta') {
+    if (action !== 'clean') {
       if (st) await edit(chat, st, T[l].reading);
-      const { found } = await inspect(file, kind);
+      const { found, tags } = await inspect(file, kind);
       const cats = CATEGORIES.filter((c) => found[c]);
       if (!cats.length) return void await say(chat, item.photo ? T[l].photoNote : T[l].nothing, reply), false;
-      const text = metaText(T[l].metaTitle, cats, found, (c) => catName(l, c), T[l].found);
-      if (st) await edit(chat, st, text, { reply_markup: offerKeyboard(l, ['clean']) }); else await say(chat, text, reply);
+      const text = metaText(T[l].metaTitle, cats, found, (c) => catName(l, c), T[l].found, (n) => fmt(T[l].more, { n }));
+      if (st) await edit(chat, st, text, { reply_markup: offerKeyboard(l, action === 'all' ? ['clean'] : ['clean', 'all']) }); else await say(chat, text, reply);
+      if (action === 'all') {
+        const list = join(await workDir(), `${item.name.replace(/\.[^.]*$/, '')}_metadata.txt`);
+        await writeFile(list, allFields(tags, found, T[l].found));
+        await tg('sendDocument', { chat_id: chat, document: fileUri(list), disable_content_type_detection: true, reply_parameters: { message_id: reply, allow_sending_without_reply: true } });
+      }
       return !!st;
     }
     if (st) await edit(chat, st, T[l].cleaning);
@@ -174,7 +183,7 @@ async function work({ action, chat, reply, l, user, item }: Job, st?: number): P
       kept.length ? fmt(T[l].kept, { list: kept.map((c) => catName(l, c)).join(', ') }) : '',
       left.length ? fmt(T[l].leftover, { list: [...new Set(left)].map((c) => catName(l, c)).join(', ') }) : '',
     ].filter(Boolean).join('\n');
-    await tg('sendDocument', { chat_id: chat, document: `file://${out}`, caption, disable_content_type_detection: true, reply_parameters: { message_id: reply, allow_sending_without_reply: true } });
+    await tg('sendDocument', { chat_id: chat, document: fileUri(out), caption, disable_content_type_detection: true, reply_parameters: { message_id: reply, allow_sending_without_reply: true } });
     return false;
   } finally {
     await unlink(input).catch(() => {}); // the Bot API server's copy of the original
@@ -208,7 +217,7 @@ async function onMessage(m: any) {
 async function onCallback(q: any) {
   const l = lang(q.from);
   const [kind, value] = String(q.data ?? '').split(':');
-  if (kind === 'file' && (value === 'clean' || value === 'meta')) {
+  if (kind === 'file' && (value === 'clean' || value === 'meta' || value === 'all')) {
     const m = q.message, item = m?.reply_to_message ? mediaOf(m.reply_to_message) : null; // the buttons reply to the file: no state to keep
     await tg('answerCallbackQuery', { callback_query_id: q.id, ...(item ? {} : { text: T[l].gone }) });
     if (item) enqueue({ action: value, chat: m.chat.id, reply: m.reply_to_message.message_id, l, user: q.from.id, item, status: m.message_id });

@@ -2,7 +2,7 @@
 // Files stay on disk: a 2 GB video is never loaded into this 1 GB machine's memory.
 import { spawn } from 'node:child_process';
 import { openAsBlob } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
@@ -19,7 +19,8 @@ export class DiskFile extends File {
   constructor(blob: Blob, name: string, readonly path: string) { super([blob], name, { type: blob.type }); }
 }
 export const fileFromPath = async (path: string, name: string) => new DiskFile(await openAsBlob(path), name, path);
-export const workDir = async () => { await mkdir(WORK, { recursive: true }); return mkdtemp(join(WORK, 'job-')); };
+// mkdtemp makes the folder private to this user, but the Bot API server runs as another one and must read the file it sends
+export const workDir = async () => { await mkdir(WORK, { recursive: true }); const d = await mkdtemp(join(WORK, 'job-')); await chmod(d, 0o755); return d; };
 
 // The browser API, for engine/index.ts: native ffmpeg needs no download.
 export const loadAv = async () => {};

@@ -103,6 +103,15 @@ describe('non-Latin text', () => {
 });
 
 describe('classify', () => {
+  it('paths and names of source files count, Adobe history copies too; the 1904 epoch is no date', () => {
+    const tag = (name: string, value: string, group2 = '') => classify({ group0: 'XMP', group1: 'XMP-xmpMM', group2, name, value });
+    expect(tag('IngredientsFilePath', 'clip.mp4')).toBe('software');
+    expect(tag('PantryIngredientsFilePath', 'clip.mp4')).toBe('software');
+    expect(tag('MacAtomPosixProjectPath', '/Users/me/project.prproj')).toBe('software');
+    expect(tag('PantryAeProjectLinkFullPath', 'C:\\Work\\a.aep')).toBe('software');
+    expect(tag('PantryHistorySoftwareAgent', 'Premiere')).toBe('software');
+    expect(tag('PantryCreateDate', '1904:01:01 00:00:00Z', 'Time')).toBeNull();
+  });
   it('video timecode can be time of day: a date, unless zero', () => {
     const tc = (value: string) => classify({ group0: 'ffmpeg', group1: 'ffmpeg', group2: '', name: 'timecode', value });
     expect(tc('00:56:18:12')).toBe('dates');

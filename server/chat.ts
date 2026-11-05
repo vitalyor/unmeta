@@ -3,7 +3,7 @@ import { ext, RAW, OFFICE } from '../src/engine/detect.ts';
 
 export type Media = { file_id: string; file_size?: number; file_name?: string; mime_type?: string };
 export type Item = { media: Media; name: string; photo: boolean };
-type Tag = { value: string };
+type Tag = { group1?: string; name?: string; value: string };
 
 const MAX_BYTES = 2000 * 1024 ** 2; // local Bot API limit
 const EXT: Record<string, string> = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a' };
@@ -30,14 +30,29 @@ export function offerable(m: any): boolean {
 
 export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** The Bot API URL-decodes local paths: "100%.mp4" would point nowhere unencoded. */
+export const fileUri = (path: string) => `file://${path.split('/').map(encodeURIComponent).join('/')}`;
+
+const paths = (t: Tag) => (/Path$/.test(t.name ?? '') ? 0 : 1); // folders and source file names say the most: first
+
 /** Report for the chat, with values: everyone in the group sees it, so coordinates stay "found", never numbers. */
-export function metaText(title: string, cats: string[], found: Record<string, Tag[] | undefined>, label: (c: string) => string, yes: string): string {
+export function metaText(title: string, cats: string[], found: Record<string, Tag[] | undefined>, label: (c: string) => string, yes: string, more: (n: number) => string): string {
   const lines = [title];
   for (const c of cats) {
-    const vals = [...new Set((found[c] ?? []).map((t) => t.value.replace(/\s*\((image|file)\d*\.\w+\)$/, '')).filter((v) => v && v !== '(binary)'))];
+    const tags = [...(found[c] ?? [])].sort((a, b) => paths(a) - paths(b) || a.value.localeCompare(b.value));
+    const vals = [...new Set(tags.map((t) => t.value.replace(/\s*\((image|file)\d*\.\w+\)$/, '')).filter((v) => v && v !== '(binary)'))];
     const hidden = c === 'location' || c === 'thumbnails' || c === 'c2pa' || !vals.length;
-    lines.push(`\n<b>${esc(label(c))}</b>`, ...(hidden ? [yes] : vals.slice(0, 5).map((v) => esc([...v].slice(0, 80).join('')))));
+    lines.push(`\n<b>${esc(label(c))}</b>`, ...(hidden ? [yes] : vals.slice(0, 10).map((v) => esc([...v].slice(0, 120).join('')))));
+    if (!hidden && vals.length > 10) lines.push(more(vals.length - 10));
   }
-  while (lines.join('\n').length > 3900) lines.pop(); // Telegram's limit is 4096
+  let cut = 0;
+  while (lines.join('\n').length > 3800) { lines.pop(); cut++; } // Telegram's limit is 4096
+  if (cut) lines.push(more(cut));
   return lines.join('\n');
+}
+
+/** Every field, for the file behind "All fields": location stays "found" here too, the file lands in the chat. */
+export function allFields(tags: Tag[], found: Record<string, Tag[] | undefined>, yes: string): string {
+  const place = new Set(found.location ?? []);
+  return tags.map((t) => `${t.group1}:${t.name} = ${place.has(t) ? yes : t.value}`).sort((a, b) => a.localeCompare(b)).join('\n') + '\n';
 }
