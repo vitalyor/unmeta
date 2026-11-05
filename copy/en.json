@@ -1,0 +1,223 @@
+{
+  "meta": {
+    "title": "Unmeta — remove hidden data from photos and files",
+    "description": "Strip location, phone model, author name and other hidden data from photos, videos and documents. Right in your browser — your files never leave your device."
+  },
+
+  "start": {
+    "title": "Your files say more than you think. Let’s fix that.",
+    "subtitle": "Photos, videos and documents quietly record where they were taken, on what, by whom and when. We’ll show you what’s there and remove what shouldn’t be.",
+    "drop": "Drop photos, videos or documents here",
+    "dropActive": "Let go",
+    "or": "or",
+    "choose": "Choose files",
+    "chooseMobile": "Choose a photo or file",
+    "multipleHint": "Add as many files as you like, or a whole folder",
+    "privacy": "Your files never leave your device — everything happens right in your browser.",
+    "privacyLink": "See for yourself",
+    "whatIsHidden": "What hidden data?",
+    "whatIsHiddenBody": "When you take a photo or save a file, your phone and apps quietly tuck extra details inside it — this is called metadata. It can include the exact spot where it was taken, your phone’s model and serial number, even your name. You can’t see it in the picture, but anyone who gets the file can read it."
+  },
+
+  "report": {
+    "title": "What we found",
+    "reading": "Taking a look inside…",
+    "summary": "{count, plural, one {Found # kind of hidden data} other {Found # kinds of hidden data}}",
+    "nothingFound": "No hidden data found — this file is already clean",
+    "nothingFoundHint": "Good to send as is.",
+    "alwaysKept": "Orientation, colors and quality always stay exactly as they are.",
+    "details": "Full list",
+    "detailsHide": "Hide details",
+    "detailsHint": "Every field, exactly as it’s stored in the file. For the curious — you don’t need it to clean.",
+    "detailsEmpty": "No fields"
+  },
+
+  "categories": {
+    "location": {
+      "name": "Location",
+      "why": "The exact spot where it was taken — enough to find your home.",
+      "found": "{state, select, remove {Exact location found — will be removed} other {Exact location found — will stay in the file}}"
+    },
+    "device": {
+      "name": "Device and serial numbers",
+      "why": "Your phone or camera model and its serial number — it can link all your photos together.",
+      "found": "{state, select, remove {Device details found — will be removed} other {Device details found — will stay in the file}}"
+    },
+    "dates": {
+      "name": "Dates",
+      "why": "When the file was made and edited — down to the second.",
+      "found": "{state, select, remove {Capture and edit dates found — will be removed} other {Capture and edit dates found — will stay in the file}}"
+    },
+    "author": {
+      "name": "Author and copyright",
+      "why": "Your name, or the owner’s, written in by a camera or app.",
+      "found": "{state, select, remove {Author name found — will be removed} other {Author name found — will stay in the file}}"
+    },
+    "software": {
+      "name": "Apps and edit history",
+      "why": "Which apps touched the file and how — sometimes with your username and folder names.",
+      "found": "{state, select, remove {Traces of apps and edits found — will be removed} other {Traces of apps and edits found — will stay in the file}}"
+    },
+    "thumbnails": {
+      "name": "Hidden previews",
+      "why": "A tiny copy of the picture tucked inside — it can still show what you cropped out.",
+      "found": "{state, select, remove {Hidden preview found — will be removed} other {Hidden preview found — will stay in the file}}"
+    },
+    "descriptions": {
+      "name": "Captions and comments",
+      "why": "Captions, comments and tags added by you or an app.",
+      "found": "{state, select, remove {Captions or comments found — will be removed} other {Captions or comments found — will stay in the file}}"
+    },
+    "c2pa": {
+      "name": "Authenticity seals (C2PA)",
+      "why": "A digital proof of origin: shows where a picture came from, but can carry your name and edit history.",
+      "found": "{state, select, remove {Authenticity seal found — will be removed} other {Authenticity seal found — will stay in the file}}"
+    },
+    "filename": {
+      "name": "File name",
+      "why": "A name like “Emma_birthday_Brighton” says a lot on its own.",
+      "found": "{state, select, remove {We’ll rename it to something neutral: {neutral}} other {The name stays as it is}}"
+    }
+  },
+
+  "modes": {
+    "label": "Cleaning mode",
+    "remembered": "We’ll remember this on this device",
+    "maximum": {
+      "name": "Maximum",
+      "for": "Removes everything it can. For files going online or to people you don’t know."
+    },
+    "balanced": {
+      "name": "Balanced",
+      "for": "Removes the personal bits, keeps dates and captions. For friends and family."
+    },
+    "privateOnly": {
+      "name": "Private only",
+      "for": "Removes location and device, leaves the rest. When you want to keep your credit."
+    },
+    "custom": {
+      "name": "Custom",
+      "for": "You choose what goes.",
+      "switched": "You changed a setting, so this is now Custom",
+      "heading": "What to remove",
+      "toggleLabel": "Remove: {category}"
+    }
+  },
+
+  "actions": {
+    "clean": "Clean",
+    "cleanCount": "Clean {count, plural, one {# file} other {# files}}",
+    "download": "Download",
+    "save": "Save",
+    "saveHint": "Tap “Save” in the menu that opens to put it in your gallery.",
+    "downloadAll": "Download all",
+    "downloadAllHint": "As a single ZIP",
+    "share": "Share",
+    "addMore": "Add more",
+    "startOver": "Start over",
+    "remove": "Remove from list",
+    "cancel": "Cancel",
+    "retry": "Try again",
+    "close": "Close"
+  },
+
+  "result": {
+    "before": "Before",
+    "after": "After",
+    "done": "Done",
+    "verified": "We re-read the cleaned file — nothing extra left.",
+    "verifiedKept": "We re-read the cleaned file: what you chose is gone, the rest is kept.",
+    "removed": "Removed",
+    "kept": "Kept",
+    "leftover": "Only technical details remain: size, format, duration.",
+    "notFullyClean": "We couldn’t remove everything: {categories}. Better not to share this file as clean.",
+    "newName": "New name: {name}",
+    "originalSafe": "Your original is untouched — we never change it."
+  },
+
+  "batch": {
+    "files": "{count, plural, one {# file} other {# files}}",
+    "progress": "{done} of {total} done",
+    "cleaned": "{count, plural, one {# file cleaned} other {# files cleaned}}",
+    "failed": "{count, plural, one {# file didn’t work out} other {# files didn’t work out}}",
+    "skipped": "{count, plural, one {Skipped # file} other {Skipped # files}} — we can’t clean that kind yet",
+    "plainCount": "{count, plural, one {# text file has no hidden data} other {# text files have no hidden data}}"
+  },
+
+  "progress": {
+    "reading": "Taking a look inside…",
+    "cleaning": "Cleaning…",
+    "verifying": "Double-checking…",
+    "zipping": "Packing the ZIP…",
+    "percent": "{percent}%",
+    "loadingTool": "Loading the video and audio cleaner — just once, about {size}",
+    "loadingToolHint": "This is the cleaning tool itself. Your files aren’t sent anywhere."
+  },
+
+  "plainText": {
+    "title": "No hidden data inside",
+    "body": "Text files have nowhere to hide details about you. Just check the text itself — we don’t touch it."
+  },
+
+  "unsupported": {
+    "title": "We can’t clean this kind of file yet",
+    "body": "We’d rather say so than promise it’s clean. Your file is untouched.",
+    "format": "Format: {ext}"
+  },
+
+  "bigFile": {
+    "title": "Big file — {size}",
+    "body": "This device might run out of memory. Give it a try? If it doesn’t work, no harm done — your original stays safe.",
+    "try": "Try it",
+    "skip": "Not now"
+  },
+
+  "tooLarge": {
+    "title": "This file is too big — {size}",
+    "body": "Browsers can handle files up to {limit}, and this one is larger. That’s a browser limit, not something you did wrong.",
+    "mobileHint": "Computers can handle more — try it there."
+  },
+
+  "errors": {
+    "generic": "Something went wrong. Try again — your original hasn’t changed.",
+    "readFailed": "We couldn’t open this file. It may be damaged, or still downloading from the cloud.",
+    "cleanFailed": "We couldn’t clean this file. We left it untouched — don’t share it as clean.",
+    "outOfMemory": "Your device ran out of memory. Close other tabs and try again — or one file at a time.",
+    "toolLoadFailed": "We couldn’t load the cleaning tool. Check your connection and reload the page. Your files aren’t sent anywhere either way.",
+    "zipFailed": "We couldn’t build the ZIP. Download the files one by one instead.",
+    "downloadFailed": "The download didn’t work. Try again.",
+    "shareFailed": "We couldn’t open the Share menu. Use Download instead.",
+    "browserOld": "Your browser is too old for Unmeta. Update it or open the site in another browser.",
+    "folderFailed": "We couldn’t read that folder. Choose the files inside it instead."
+  },
+
+  "empty": {
+    "noFiles": "Nothing here yet",
+    "noFilesHint": "Add some files and we’ll show you what’s hiding inside.",
+    "allRemoved": "You’ve cleared the list"
+  },
+
+  "settings": {
+    "language": "Language",
+    "languageRu": "Русский",
+    "languageEn": "English",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "Match system"
+  },
+
+  "footer": {
+    "promise": "Your files never leave your device.",
+    "privacy": "Privacy",
+    "source": "Source code",
+    "license": "Open source, AGPL-3.0"
+  },
+
+  "a11y": {
+    "dropzone": "File drop area. Drop files here or press to choose.",
+    "removeFile": "Remove {name} from the list",
+    "fileStatus": "{name}: {status}",
+    "progress": "Processing {name}: {percent}%"
+  }
+}

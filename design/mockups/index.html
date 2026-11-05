@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unmeta · три направления</title>
+<style>
+:root { color-scheme: light dark; --bg: #f4f4f5; --fg: #111; --mu: #5b5b63; --card: #fff; --line: #e2e2e6; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121214; --fg: #eee; --mu: #a2a2ab; --card: #1b1b1f; --line: #2b2b31; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+main { width: min(100% - 32px, 1400px); margin: 0 auto; padding: 40px 0 80px; }
+h1 { font-size: 1.8rem; margin: 0 0 4px; } p { color: var(--mu); margin: 0 0 28px; max-width: 70ch; }
+.dir { background: var(--card); border-radius: 18px; padding: 22px; margin-bottom: 20px; }
+.dir h2 { margin: 0; font-size: 1.25rem; } .dir .lead { margin: 4px 0 14px; }
+.open { display: inline-block; padding: 10px 16px; border-radius: 999px; background: var(--fg); color: var(--bg); text-decoration: none; font-weight: 600; margin-bottom: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.grid a { display: block; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-decoration: none; color: var(--mu); font-size: .78rem; }
+.grid img { display: block; width: 100%; aspect-ratio: 9 / 14; object-fit: cover; object-position: top; background: var(--bg); }
+.grid span { display: block; padding: 6px 8px; }
+details summary { cursor: pointer; font-weight: 600; margin: 6px 0 12px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Unmeta — три направления дизайна</h1>
+<p>Живые макеты: все экраны кликаются (попробуйте «Попробовать на примере» или выберите свои файлы — они никуда не уходят). Внизу каждой страницы — панель «Макет» для перехода между экранами. Подробности и обоснования — в <code>design/RESEARCH.md</code>.</p>
+<div id="dirs"></div>
+</main>
+<script>
+const DIRS = [
+  ['a-protocol', 'A · Протокол', 'Точный инструмент: холодная бумага, кобальт, шрифт Geologica. Отчёт как протокол — удалённое зачёркивается линейкой.'],
+  ['b-redaction', 'B · Редакция', 'Файл как документ: серифный Literata + Golos. Найденное подсвечено маркером, удалённое закрывается чёрной полосой.'],
+  ['c-vault', 'C · Морское стекло', 'Мягкий тактильный предмет: Unbounded + Onest, крупные плитки, шторка снизу на телефоне, «смывание» файла.'],
+];
+const SHOTS = ['start', 'report', 'modes', 'after', 'before', 'batch', 'batch-done', 'unsupported', 'large', 'large-progress'];
+const W = [375, 768, 1440, 2560];
+document.getElementById('dirs').innerHTML = DIRS.map(([id, name, lead]) => `<section class="dir">
+  <h2>${name}</h2><p class="lead">${lead}</p><a class="open" href="${id}.html">Открыть макет</a>
+  ${W.map((w, i) => `<details ${i === 0 || i === 2 ? 'open' : ''}><summary>Скриншоты ${w} px</summary><div class="grid">${SHOTS.map((s) =>
+    `<a href="../screens/${id}/${s}-${w}.png" target="_blank"><img loading="lazy" src="../screens/${id}/${s}-${w}.png" alt="${name}: ${s}, ${w}px"><span>${s}</span></a>`).join('')}
+    ${w !== 2560 ? ['start-' + w + '-dark', 'report-' + w + '-dark', 'after-' + w + '-dark', 'start-' + w + '-en'].map((s) => `<a href="../screens/${id}/${s}.png" target="_blank"><img loading="lazy" src="../screens/${id}/${s}.png" alt="${name}: ${s}"><span>${s.replace('-' + w, '')}</span></a>`).join('') : ''}
+  </div></details>`).join('')}
+</section>`).join('');
+</script>
+</body>
+</html>
