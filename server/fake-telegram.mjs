@@ -9,7 +9,7 @@ const local = (uri) => decodeURIComponent(uri.replace(/^file:\/\//, '')); // wha
 
 export class FakeTelegram {
   calls = []; sent = []; queue = []; downloaded = []; ids = 1_000_000; update = 1;
-  kicked = new Set(); migrated = new Map(); rate = { limit: Infinity, perMs: 1000 }; times = new Map(); flaky = 0; latency = 0;
+  kicked = new Set(); migrated = new Map(); rate = { limit: Infinity, perMs: 1000 }; times = new Map(); flaky = 0; lost = 0; latency = 0;
   constructor(tmp, fixture) { this.tmp = tmp; this.fixture = fixture; }
 
   async listen() {
@@ -24,7 +24,11 @@ export class FakeTelegram {
           return res.end(JSON.stringify({ ok: true, result: this.queue.slice(0, 100) }));
         }
         if (this.flaky && Math.random() < this.flaky && method !== 'getMe') return method in SENDS ? res.end(JSON.stringify({ ok: false, error_code: 502, description: 'Bad Gateway' })) : req.socket.destroy();
-        try { res.end(JSON.stringify({ ok: true, result: await this.answer(method, p) })); }
+        try {
+          const result = await this.answer(method, p);
+          if (method === 'getFile' && Math.random() < this.lost) return req.socket.destroy(); // the file arrived on disk, the bot never heard
+          res.end(JSON.stringify({ ok: true, result }));
+        }
         catch (e) { res.end(JSON.stringify({ ok: false, error_code: e.code ?? 400, description: e.message, parameters: e.parameters })); }
       });
     });

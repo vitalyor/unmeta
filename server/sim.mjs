@@ -32,12 +32,12 @@ await make('empty.jpg', (p) => writeFile(p, ''));
 await make('lies.jpg', async (p) => copyFile(fx('video.mp4'), p)); // a video named like a photo
 const tg = new FakeTelegram(tmp, (id) => made[id] ?? (existsSync(fx(id)) ? fx(id) : null));
 const api = await tg.listen();
-tg.rate = { limit: 8, perMs: 1000 }; tg.flaky = 0.03;
+tg.rate = { limit: 8, perMs: 1000 }; tg.flaky = 0.03; tg.lost = 0.05;
 
 let bot, deaths = [], kills = 0;
 const start = async () => {
   const before = tg.of('setMyCommands').length;
-  const b = spawn(process.execPath, [dist('bot.mjs')], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'), QUIET_MS: '60', WINDOW_MS: '400', WINDOW_MAX_MS: '2000', TICK_MS: '15', RETRY_MS: '40', EDIT_EVERY_MS: '100', SLEEP_SCALE: '0.05' } });
+  const b = spawn(process.execPath, [dist('bot.mjs')], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'), QUIET_MS: '60', WINDOW_MS: '400', WINDOW_MAX_MS: '2000', TICK_MS: '15', RETRY_MS: '40', EDIT_EVERY_MS: '100', SLEEP_SCALE: '0.05', SCRUB_MS: '200' } });
   b.stderr.on('data', () => {});
   b.on('exit', (code, sig) => { if (sig !== 'SIGKILL') deaths.push(`${code}/${sig}`); });
   bot = b;
@@ -53,7 +53,7 @@ const groups = [
 ];
 const users = Array.from({ length: 8 }, (_, i) => ({ id: 100 + i, language_code: i % 3 ? 'ru' : 'en', first_name: `u${i}` }));
 let msgId = 10;
-const messages = [], requested = new Map(), muted = new Set(), mutedOffers = [];
+const messages = [], requested = new Map(), buttons = new Set(), noButton = new Set(), cleanTargets = new Set();
 const stamp = (m) => { requested.set(`${m.chat.id}:${m.message_id}`, m); };
 
 function message(chat, from, fields) {
@@ -61,6 +61,7 @@ function message(chat, from, fields) {
   if (chat.is_forum && chance(0.7)) { m.is_topic_message = true; m.message_thread_id = pick([2, 3]); }
   if (chance(0.1)) m.forward_origin = { type: 'user' };
   messages.push(m);
+  if (!buttons.has(`${chat.id}:${from.id}`)) noButton.add(m.message_id);
   return m;
 }
 function media(chat, from, f) {
@@ -86,6 +87,7 @@ function pressAny() {
   q(); if (chance(0.25)) q(); // a double tap
 }
 
+for (const chat of groups) for (const from of users) if (chance(0.8)) { buttons.add(`${chat.id}:${from.id}`); tg.send({ message: message(chat, from, { text: '/on' }) }); } // the rest never turn it on
 const t0 = Date.now(), killTimes = [];
 for (let i = 0; i < EVENTS; i++) {
   const chat = pick(groups), from = pick(users), r = rnd();
@@ -94,20 +96,20 @@ for (let i = 0; i < EVENTS; i++) {
   else if (r < 0.60) tg.send({ message: media(chat, from, pick(BAD)) });
   else if (r < 0.64) tg.send({ message: message(chat, from, { document: { file_id: pick(['notes.txt', 'scene.blend']), file_name: pick(['notes.txt', 'scene.blend', 'архив.zip']), file_size: 10 } }) });
   else if (r < 0.66) tg.send({ message: message(chat, from, { sticker: { file_id: 'x' } }) });
-  else if (r < 0.70) { const album = String(i); for (let k = 0; k < 2 + Math.floor(rnd() * 8); k++) tg.send({ message: { ...media(chat, from, pick(GOOD)), media_group_id: album } }); } // an album
+  else if (r < 0.70) { const album = String(i); for (let k = 0; k < 2 + Math.floor(rnd() * 8); k++) { const m = media(chat, from, pick(GOOD)); m.media_group_id = album; if (!k && chance(0.3)) { m.caption = '@unmeta_bot'; cleanTargets.add(m.message_id); } tg.send({ message: m }); } } // an album
   else if (r < 0.80) pressAny();
   else if (r < 0.90) {
     const t = pick(messages.filter((m) => m.chat.id === chat.id)) ?? null;
-    if (t) { const m = message(chat, from, { text: pick(['/clean', '/clean', '/clean@unmeta_bot']), reply_to_message: t }); tg.send({ message: m }); }
+    if (t) { cleanTargets.add(t.message_id); const m = message(chat, from, { text: pick(['/clean', '@unmeta_bot', 'почисти @unmeta_bot', '/clean@unmeta_bot']), reply_to_message: t }); tg.send({ message: m }); }
   } else if (r < 0.92) { tg.send({ message: message(chat, from, { text: '/clean' }) }); }
-  else if (r < 0.95) { const on = muted.has(`${chat.id}:${from.id}`); if (on) muted.delete(`${chat.id}:${from.id}`); else muted.add(`${chat.id}:${from.id}`); tg.send({ message: message(chat, from, { text: on ? '/on' : '/off' }) }); }
+  else if (r < 0.95) { const k = `${chat.id}:${from.id}`, on = !buttons.has(k); tg.send({ message: message(chat, from, { text: on ? '/on' : '/off' }) }); if (on) buttons.add(k); else buttons.delete(k); }
   else if (r < 0.96) tg.send({ message: message({ id: from.id, type: 'private' }, from, { text: '/start' }) });
   else if (r < 0.97) tg.send({ message: message({ id: from.id, type: 'private' }, from, { document: { file_id: 'photo.jpg', file_name: 'x.jpg' } }) });
   else if (r < 0.98) tg.send({ message: message(chat, { id: 999, is_bot: true }, { document: { file_id: 'doc.pdf', file_name: 'bot.pdf' } }) });
   else tg.send({ message: message(chat, { id: 136817688, is_bot: true, username: 'GroupAnonymousBot' }, { sender_chat: { id: chat.id }, document: { file_id: 'doc.pdf', file_name: 'anon.pdf', file_size: 10 } }) });
 
   if (i === Math.floor(EVENTS * 0.3)) { const c = groups[0], from1 = { id: 555, language_code: 'ru' }; for (let k = 0; k < 100; k++) tg.send({ message: media(c, from1, pick(GOOD)) }); } // one person, a hundred files
-  if (i === Math.floor(EVENTS * 0.5)) { tg.migrated.set(-1002, -1009002); tg.send({ message: { message_id: ++msgId, chat: { ...groups[1] }, from: pick(users), migrate_to_chat_id: -1009002 } }); groups[1].id = -1009002; }
+  if (i === Math.floor(EVENTS * 0.5)) { tg.migrated.set(-1002, -1009002); tg.send({ message: { message_id: ++msgId, chat: { ...groups[1] }, from: pick(users), migrate_to_chat_id: -1009002 } }); groups[1].id = -1009002; for (const k of [...buttons]) if (k.startsWith('-1002:')) { buttons.delete(k); buttons.add(k.replace('-1002', '-1009002')); } } // the setting moves with the group
   if (i === Math.floor(EVENTS * 0.7)) { tg.kicked.add(-1004); groups.pop(); } // no more updates from there
   if (chance(0.03)) { killTimes.push(Date.now() - t0); bot.kill('SIGKILL'); kills++; await sleep(100); await start(); }
   if (chance(0.15)) await sleep(10 + rnd() * 120);
@@ -116,7 +118,7 @@ await sleep(1000);
 await sleep(1500);
 for (const c of tg.of('sendMessage').filter((c) => c.reply_markup && !c.pressed)) { c.pressed = true; tg.send({ callback_query: { id: `end${c.at}`, from: pick(users), data: c.reply_markup.inline_keyboard[0][0].callback_data, message: { message_id: 1, chat: { id: c.chat_id, type: 'supergroup' } } } }); }
 for (let k = 0; k < 8; k++) { await sleep(3000 + rnd() * 9000); killTimes.push(Date.now() - t0); bot.kill('SIGKILL'); kills++; await sleep(150); await start(); } // and while the queue works
-tg.flaky = 0;
+tg.flaky = 0; tg.lost = 0;
 
 const open = () => {
   const d = new DatabaseSync(join(tmp, 'bot.db'), { readOnly: true });
@@ -163,14 +165,24 @@ if (left.length) fail(`work folder keeps ${left.length}`);
 const inputs = tg.downloaded.filter((x) => existsSync(x.path));
 if (inputs.length) fail(`${inputs.length} downloaded originals still on disk`);
 if (jobs.some((j) => ['done', 'nothing', 'skipped', 'failed'].includes(j.status) && (j.file_name || j.file_id))) fail('a file name outlived its job');
-// Promise 7: private chats, other bots and muted people got no buttons
+// Promise 7: private chats, other bots and people who didn't turn the button on got no buttons
+const byId = new Map(messages.map((m) => [m.message_id, m]));
+const albumsAsked = new Set([...cleanTargets].map((id) => byId.get(id)?.media_group_id).filter(Boolean));
+const inAskedAlbum = (j) => albumsAsked.has(byId.get(j.message_id)?.media_group_id);
+// Accepted: killed before a pack of updates is confirmed, Telegram repeats it, and a file sent just before that person's /on gets a button.
+const replayed = (j) => messages.some((x) => x.message_id > j.message_id && x.message_id - j.message_id < 100 && x.text === '/on' && x.from?.id === j.user_id && x.chat.id === byId.get(j.message_id)?.chat.id);
+if (jobs.some((j) => j.status !== 'seen' && j.error !== 'bot-removed' && noButton.has(j.message_id) && !cleanTargets.has(j.message_id) && !inAskedAlbum(j) && !replayed(j))) fail('a button for someone who did not ask');
+// Promise 9: /clean on one file of an album takes all of it, and nothing moves in an album nobody asked about
+const untouched = jobs.filter((j) => inAskedAlbum(j) && ['seen', 'offered'].includes(j.status)).length;
+if (untouched) fail(`${untouched} files left behind in albums that were asked for`);
+if (jobs.some((j) => j.status === 'seen' && j.attempts > 0)) fail('a remembered file was touched');
 for (const c of tg.of('sendMessage')) if (c.chat_id > 0) fail('wrote to a private chat');
 if (jobs.some((j) => j.user_id === 999)) fail('reacted to another bot');
 // Promise 8: the bot itself never fell over
 if (deaths.length) fail(`bot died by itself: ${deaths}`);
 try { const n = execSync(`pgrep -f ${tmp} | wc -l`).toString().trim(); if (Number(n) > 1) fail(`${n} stray processes`); } catch { /* none */ }
 // Promise 9: a promise made in the queue is kept: done + nothing + skipped + failed covers every pressed file
-const unended = jobs.filter((j) => !['done', 'nothing', 'skipped', 'failed', 'offered'].includes(j.status));
+const unended = jobs.filter((j) => !['done', 'nothing', 'skipped', 'failed', 'offered', 'seen'].includes(j.status)); // seen: a file of an album, waiting to be asked for
 if (unended.length) fail(`${unended.length} jobs without an end`);
 
 console.log(`seed ${seed}: ${EVENTS} events + burst in ${((Date.now() - t0) / 1000).toFixed(0)} s; ${messages.length} messages, ${jobs.length} files seen, ${batches.length} packs, ${tg.sent.length} delivered and checked (${checked}), ${kills} kills, ${tg.limited ?? 0} rate limits`);

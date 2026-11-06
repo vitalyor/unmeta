@@ -1,10 +1,10 @@
-// Unmeta Telegram bot, for groups only (private chats are ignored). A clean button under files, or /clean as a reply.
+// Unmeta Telegram bot, for groups only (private chats are ignored). Tag @unmeta_bot in a caption or a reply to clean a file; a button under files is opt-in (/on).
 // Always the Maximum preset. Every file is a row in the database (db.ts): a restart loses nothing, a repeat runs
 // nothing twice, and each file is cleaned in its own process (worker.ts), so a bad file only costs that file.
 // Talks to a local Bot API server (files up to 2 GB, exchanged by path).
 import { fork, type ChildProcess } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import { readdir, rename, rm, statfs, unlink, writeFile } from 'node:fs/promises';
+import { readdir, rename, rm, statfs, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { esc, mediaOf, offerable, sendCall, type Item, type Shape } from './chat';
 import { openDb, ENDED, LIVE, WEEK, type Batch, type Job, type JobStatus } from './db';
@@ -18,9 +18,9 @@ const API = `${process.env.BOT_API ?? 'http://127.0.0.1:8081'}/bot${TOKEN}`;
 const WORK = process.env.WORK_DIR ?? '/tmp/unmeta';
 const DB_FILE = process.env.DB_FILE ?? join(WORK, 'unmeta.db');
 const CACHE = process.env.CACHE_DIR ?? join(WORK, '..', TOKEN); // where the Bot API server keeps downloaded files
-const CACHE_PARTS = ['documents', 'videos', 'photos', 'music', 'voice', 'animations', 'video_notes', 'thumbnails', 'temp'];
 // One button under the last file: it waits for a pause in someone's files, and moves down if more arrive while nobody pressed
 const QUIET = env('QUIET_MS', 1500), WINDOW = env('WINDOW_MS', 60_000), WINDOW_MAX = env('WINDOW_MAX_MS', 600_000);
+const SCRUB = env('SCRUB_MS', 300_000);
 const POLL = env('POLL_S', 50), TICK = env('TICK_MS', 300), RETRY = env('RETRY_MS', 5000), EDIT_EVERY = env('EDIT_EVERY_MS', 3500);
 const JOB_MIN = env('JOB_MIN_MS', 120_000), SLEEP_SCALE = env('SLEEP_SCALE', 1);
 const MAX_ATTEMPTS = 3;
@@ -30,7 +30,7 @@ const BYTES_PER_MS = 2 * 1024 ** 2 / 1000; // slowest honest speed for one file,
 // ---------- texts ----------
 const T = {
   ru: {
-    start: 'Отправьте в группу файл — фото, видео, аудио, PDF или документ — и я верну его без скрытых данных: геопозиции, модели телефона, дат, автора, истории правок.\n\nОтправляйте как <b>файл</b>, а не как фото: так Telegram не пережмёт его.\n\nПод файлом появится кнопка очистки: со сжатием или без, проверю всё. Ещё можно ответить на сообщение с файлом командой <code>/clean</code>.\n\nНе нужна кнопка под вашими файлами? /off, вернуть: /on.\n\nФайл скачивается на сервер бота только когда вы просите, и удаляется сразу после ответа. Другие сообщения группы бот не читает. Неделю он хранит только номера сообщений и статусы, без файлов. Если нужно, чтобы файл совсем не покидал устройство, — сайт: https://unmeta.nolim.cloud',
+    start: 'Я убираю из файлов скрытые данные: геопозицию, модель телефона, даты, автора, историю правок.\n\nНапишите @unmeta_bot в подписи к файлу или альбому либо в ответ на сообщение с ним — и я верну чистые копии. Фото, видео, аудио, PDF, документы; со сжатием или без, проверю всё.\n\nОтправляйте как <b>файл</b>, а не как фото: так Telegram не пережмёт его.\n\nХотите кнопку очистки под своими файлами в этой группе? Включить: /on, выключить: /off.\n\nФайл скачивается на сервер бота только когда вы просите, и удаляется сразу после ответа. Другие сообщения группы бот не читает. Неделю он хранит только номера сообщений и статусы, а для альбомов ещё имена файлов и ссылки на них в Telegram: так очищается весь альбом. Самих файлов там нет. Если нужно, чтобы файл совсем не покидал устройство, — сайт: https://unmeta.nolim.cloud',
     queued: '<b>В очереди</b>',
     queuedAhead: '<b>В очереди</b>\nФайлов впереди: {n}',
     stageGet: 'Получаю файл',
@@ -52,23 +52,23 @@ const T = {
     tooBigDoc: '<b>Файл слишком большой</b>\nТакой документ или фото я пока не потяну. Попробуйте сайт: https://unmeta.nolim.cloud',
     failed: '<b>Не получилось очистить</b>\nНе отправляйте этот файл как чистый.',
     corrupt: '<b>Файл не открывается</b>\nПохоже, он повреждён или пуст. Не отправляйте его как чистый.',
-    replyToFile: 'Ответьте /clean на сообщение с файлом.',
+    replyToFile: 'Напишите @unmeta_bot в ответ на сообщение с файлом.',
     offer: 'В файле <b>{name}</b> могут быть скрытые данные.',
     offerMany: '<b>Файлов: {n}</b>\nВ них могут быть скрытые данные.',
     btnClean: 'Очистить от метаданных',
     btnCleanMany: 'Очистить все: {n}',
-    gone: 'Кнопка устарела. Ответьте /clean на сообщение с файлом.',
+    gone: 'Кнопка устарела. Напишите @unmeta_bot в ответ на сообщение с файлом.',
     already: 'Этот файл уже очищен.',
     working: 'Этот файл уже в работе.',
-    off: 'Больше не показываю кнопку под вашими файлами в этой группе. /clean работает как раньше. Вернуть: /on',
-    on: 'Снова показываю кнопку под вашими файлами.',
+    off: 'Кнопка под вашими файлами в этой группе выключена. Чистить файлы можно как раньше: @unmeta_bot в подписи или ответе. Включить: /on',
+    on: 'Теперь под вашими файлами в этой группе будет кнопка очистки. Выключить: /off',
     summary: '<b>Готово</b>\nОчищено: {done} из {n}',
     sumNothing: 'Без скрытых данных: {n}',
     sumSkipped: 'Формат не поддерживается: {n}',
     sumFailed: 'Не получилось: {n}. Такие файлы не отправляйте как чистые.',
   },
   en: {
-    start: 'Send a file to the group — photo, video, audio, PDF or document — and I will return it without hidden data: location, phone model, dates, author, edit history.\n\nSend it as a <b>file</b>, not as a photo, so Telegram does not recompress it.\n\nA clean button appears under each file, compressed or not, and I check them all. You can also reply to a file with <code>/clean</code>.\n\nDon\'t want the button under your files? /off, back with /on.\n\nA file reaches the bot\'s server only when you ask, and is deleted right after the reply. The bot does not read other group messages. It keeps only message numbers and statuses for a week, no files. If the file must never leave your device, use the site: https://unmeta.nolim.cloud',
+    start: 'I remove hidden data from files: location, phone model, dates, author, edit history.\n\nWrite @unmeta_bot in the caption of a file or album, or in a reply to one, and I will return clean copies. Photos, video, audio, PDFs, documents; compressed or not, I check them all.\n\nSend it as a <b>file</b>, not as a photo, so Telegram does not recompress it.\n\nWant a clean button under your files in this group? Turn it on with /on, off with /off.\n\nA file reaches the bot\'s server only when you ask, and is deleted right after the reply. The bot does not read other group messages. It keeps only message numbers and statuses for a week, plus file names and Telegram links for albums, so a whole album can be cleaned. No files. If the file must never leave your device, use the site: https://unmeta.nolim.cloud',
     queued: '<b>Queued</b>',
     queuedAhead: '<b>Queued</b>\nFiles ahead: {n}',
     stageGet: 'Getting the file',
@@ -90,16 +90,16 @@ const T = {
     tooBigDoc: '<b>File too big</b>\nThis document or photo is too big for me yet. Try the site: https://unmeta.nolim.cloud',
     failed: '<b>Couldn\'t clean it</b>\nDon\'t share this file as clean.',
     corrupt: '<b>The file won\'t open</b>\nIt looks damaged or empty. Don\'t share it as clean.',
-    replyToFile: 'Reply /clean to a message with a file.',
+    replyToFile: 'Write @unmeta_bot in a reply to a message with a file.',
     offer: '<b>{name}</b> may contain hidden data.',
     offerMany: '<b>Files: {n}</b>\nThey may contain hidden data.',
     btnClean: 'Remove metadata',
     btnCleanMany: 'Clean all: {n}',
-    gone: 'This button is out of date. Reply /clean to a message with a file.',
+    gone: 'This button is out of date. Write @unmeta_bot in a reply to a message with a file.',
     already: 'This file is already clean.',
     working: 'This file is already being cleaned.',
-    off: 'No more buttons under your files in this group. /clean still works. Bring them back: /on',
-    on: 'Buttons are back under your files.',
+    off: 'The button under your files in this group is off. You can still clean files: @unmeta_bot in a caption or reply. Turn it on: /on',
+    on: 'A clean button will now appear under your files in this group. Turn it off: /off',
     summary: '<b>Done</b>\nCleaned: {done} of {n}',
     sumNothing: 'No hidden data: {n}',
     sumSkipped: 'Unsupported format: {n}',
@@ -175,11 +175,11 @@ const tx = <R>(fn: () => R): R => {
 const q = (sql: string) => db.prepare(sql);
 const jobIn = (chat: number, message: number) => q('SELECT * FROM jobs WHERE chat_id = ? AND message_id = ?').get(chat, message) as Job | undefined;
 const batchById = (id: number) => q('SELECT * FROM batches WHERE id = ?').get(id) as Batch | undefined;
-const isMuted = (chat: number, user: number) => !!q('SELECT 1 FROM muted WHERE chat_id = ? AND user_id = ?').get(chat, user);
+const wantsButton = (chat: number, user: number) => !!q('SELECT 1 FROM buttons WHERE chat_id = ? AND user_id = ?').get(chat, user);
 function setJob(id: number, status: JobStatus, fields: { error?: string | null; result_id?: number | null; next_at?: number } = {}) {
   const ended = status === 'done' || status === 'nothing' || status === 'skipped' || status === 'failed';
   q(`UPDATE jobs SET status = ?, error = COALESCE(?, error), result_id = COALESCE(?, result_id), next_at = ?, updated_at = ?
-     ${ended ? ', file_id = NULL, file_name = NULL, input = NULL, shape = NULL' : ''} WHERE id = ?`)
+     ${ended ? ', file_id = NULL, file_name = NULL, shape = NULL' : ''} WHERE id = ?`)
     .run(status, fields.error ?? null, fields.result_id ?? null, fields.next_at ?? 0, Date.now(), id);
 }
 function migrate(from: number, to: number) {
@@ -187,7 +187,7 @@ function migrate(from: number, to: number) {
     q('INSERT OR REPLACE INTO state VALUES (?, ?)').run(`moved:${from}`, String(to)); // updates sent just before the move still carry the old id
     q('UPDATE OR IGNORE jobs SET chat_id = ? WHERE chat_id = ?').run(to, from);
     q('UPDATE batches SET chat_id = ? WHERE chat_id = ?').run(to, from);
-    q('UPDATE OR IGNORE muted SET chat_id = ? WHERE chat_id = ?').run(to, from);
+    q('UPDATE OR IGNORE buttons SET chat_id = ? WHERE chat_id = ?').run(to, from);
   });
 }
 function newBatch(chat: number, thread: number | null, user: number, lang: string, replyTo: number, status: Batch['status']) {
@@ -195,10 +195,10 @@ function newBatch(chat: number, thread: number | null, user: number, lang: strin
   return Number(q('INSERT INTO batches (chat_id, thread_id, user_id, lang, reply_to, status, last_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
     .run(chat, thread, user, lang, replyTo, status, now, now, now).lastInsertRowid);
 }
-function addJob(chat: number, thread: number | null, message: number, user: number, lang: string, item: Item, batch: number, status: JobStatus) {
+function addJob(chat: number, thread: number | null, message: number, user: number, lang: string, item: Item, batch: number, status: JobStatus, album: string | null = null) {
   const now = Date.now();
-  q('INSERT INTO jobs (chat_id, thread_id, message_id, user_id, lang, file_id, file_name, file_size, photo, shape, batch_id, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(chat, thread, message, user, lang, item.media.file_id, item.name, item.media.file_size ?? 0, item.photo ? 1 : 0, JSON.stringify(item.shape), batch, status, now, now);
+  q('INSERT INTO jobs (chat_id, thread_id, message_id, user_id, lang, file_id, file_name, file_size, photo, shape, batch_id, status, album, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(chat, thread, message, user, lang, item.media.file_id, item.name, item.media.file_size ?? 0, item.photo ? 1 : 0, JSON.stringify(item.shape), batch, status, album, now, now);
 }
 
 // ---------- offering the button ----------
@@ -212,8 +212,25 @@ function offer(m: any, user: number, lang: string) {
     const open = q(`SELECT * FROM batches WHERE chat_id = ? AND thread_id IS ? AND user_id = ? AND status IN ('open', 'offered') AND last_at > ? AND created_at > ? ORDER BY id DESC`)
       .get(chat, thread, user, now - WINDOW, now - WINDOW_MAX) as Batch | undefined;
     const batch = open?.id ?? newBatch(chat, thread, user, lang, m.message_id, 'open');
-    addJob(chat, thread, m.message_id, user, lang, mediaOf(m)!, batch, 'offered');
+    addJob(chat, thread, m.message_id, user, lang, mediaOf(m)!, batch, 'offered', m.media_group_id ?? null);
     q('UPDATE batches SET last_at = ?, reply_to = ? WHERE id = ?').run(now, m.message_id, batch);
+  });
+}
+
+/**
+ * Telegram sends an album as separate messages and can't list them later, so /clean on one file needs the others on record.
+ * Nothing is downloaded or said; the name and file_id stay until the file is cleaned, or a week. If /clean already took
+ * this album (it came in the caption of the first file), this file joins that work.
+ */
+function remember(m: any, user: number, lang: string, button: boolean) {
+  const chat = m.chat.id, thread = threadOf(m), album = m.media_group_id as string;
+  if (jobIn(chat, m.message_id)) return;
+  const taken = q(`SELECT j.batch_id AS id, b.status FROM jobs j JOIN batches b ON b.id = j.batch_id WHERE j.chat_id = ? AND j.album = ? AND j.status NOT IN ('seen', 'offered') ORDER BY j.id DESC`).get(chat, album) as { id: number; status: string } | undefined;
+  if (taken) return void tx(() => addJob(chat, thread, m.message_id, user, lang, mediaOf(m)!, taken.status === 'finished' ? newBatch(chat, thread, user, lang, m.message_id, 'queued') : taken.id, 'queued', album));
+  if (button) return offer(m, user, lang);
+  tx(() => {
+    const mate = q(`SELECT batch_id FROM jobs WHERE chat_id = ? AND album = ? AND status = 'seen'`).get(chat, album) as { batch_id: number } | undefined;
+    addJob(chat, thread, m.message_id, user, lang, mediaOf(m)!, mate?.batch_id ?? newBatch(chat, thread, user, lang, m.message_id, 'finished'), 'seen', album);
   });
 }
 
@@ -255,17 +272,23 @@ async function cleanRequest(m: any, target: any, user: number, lang: string) {
   const chat = m.chat.id, t = texts(lang), item = mediaOf(target), thread = threadOf(m) ?? threadOf(target);
   if (!item) return void await say(chat, thread, t.replyToFile, m.message_id);
   const seen = jobIn(chat, target.message_id);
-  if (seen?.status === 'done') return void await say(chat, thread, t.already, seen.result_id ?? target.message_id);
-  if (seen && ['queued', 'running', 'sending'].includes(seen.status)) return void await say(chat, thread, t.working, target.message_id);
-  if (seen?.status === 'nothing') return void await say(chat, thread, seen.photo ? t.photoNote : t.nothing, target.message_id);
+  const rest = target.media_group_id ? q(`SELECT * FROM jobs WHERE chat_id = ? AND album = ? AND message_id != ? AND status IN ('seen', 'offered') ORDER BY id`)
+    .all(chat, target.media_group_id, target.message_id) as unknown as Job[] : [];
+  const settled = seen?.status === 'done' || seen?.status === 'nothing' || ['queued', 'running', 'sending'].includes(seen?.status ?? '');
+  if (settled && !rest.length) {
+    if (seen!.status === 'done') return void await say(chat, thread, t.already, seen!.result_id ?? target.message_id);
+    if (seen!.status === 'nothing') return void await say(chat, thread, seen!.photo ? t.photoNote : t.nothing, target.message_id);
+    return void await say(chat, thread, t.working, target.message_id);
+  }
   const batch = tx(() => {
     const id = newBatch(chat, thread, user, lang, target.message_id, 'queued');
-    if (seen) q(`UPDATE jobs SET batch_id = ?, status = 'queued', file_id = ?, file_name = ?, file_size = ?, shape = ?, attempts = 0, next_at = 0, error = NULL, updated_at = ? WHERE id = ?`)
+    if (seen && !settled) q(`UPDATE jobs SET batch_id = ?, status = 'queued', file_id = ?, file_name = ?, file_size = ?, shape = ?, attempts = 0, next_at = 0, error = NULL, updated_at = ? WHERE id = ?`)
       .run(id, item.media.file_id, item.name, item.media.file_size ?? 0, JSON.stringify(item.shape), Date.now(), seen.id);
-    else addJob(chat, thread, target.message_id, user, lang, item, id, 'queued');
+    else if (!seen) addJob(chat, thread, target.message_id, user, lang, item, id, 'queued', target.media_group_id ?? null);
+    for (const j of rest) q(`UPDATE jobs SET batch_id = ?, status = 'queued', lang = ?, updated_at = ? WHERE id = ?`).run(id, lang, Date.now(), j.id);
     return id;
   });
-  if (seen) await settle(seen.batch_id); // its old pack may be empty now
+  for (const old of new Set([...(seen && !settled ? [seen.batch_id] : []), ...rest.map((j) => j.batch_id)])) await settle(old); // an old pack may be empty now
   const s = await say(chat, thread, queuedText(lang, batch), target.message_id).catch(() => null);
   if (s) q('UPDATE batches SET prompt_id = ? WHERE id = ?').run(s.message_id, batch);
 }
@@ -311,7 +334,18 @@ function isolate(path: string, name: string, size: number, onProgress: (p: numbe
   });
 }
 
-const sweep = async () => { for (const n of await readdir(WORK).catch(() => [] as string[])) if (n.startsWith('job-')) await rm(join(WORK, n), { recursive: true, force: true }); };
+/**
+ * Files live only while their job runs, and the queue runs one job. So between jobs nothing may exist: no list of what to
+ * delete, nothing to miss. Covers a getFile whose answer was lost, and one that finishes after the bot gave up on it.
+ * Left alone: Telegram's own database, the files directly in CACHE. Never call this during a job.
+ */
+async function scrub() {
+  const wipe = (p: string) => rm(p, { recursive: true, force: true }).catch((e) => console.error('scrub:', e.code)); // the path holds the token
+  for (const n of await readdir(WORK).catch(() => [] as string[])) if (n.startsWith('job-')) await wipe(join(WORK, n));
+  for (const d of await readdir(CACHE, { withFileTypes: true }).catch(() => [])) {
+    if (d.isDirectory()) for (const n of await readdir(join(CACHE, d.name)).catch(() => [] as string[])) await wipe(join(CACHE, d.name, n));
+  }
+}
 
 async function hasRoom(size: number) {
   const s = await statfs(WORK);
@@ -334,11 +368,9 @@ async function process1(job: Job) {
   q(`UPDATE jobs SET status = 'running', attempts = attempts + 1, updated_at = ? WHERE id = ?`).run(Date.now(), job.id);
   job.attempts++;
   await progress(job, 'get', null, true);
-  let input: string | undefined;
   try {
     if (!(await hasRoom(job.file_size))) return retryLater(job, 'no-disk-space');
-    input = (await tg<{ file_path: string }>('getFile', { file_id: job.file_id })).file_path;
-    q('UPDATE jobs SET input = ? WHERE id = ?').run(input, job.id);
+    const input = (await tg<{ file_path: string }>('getFile', { file_id: job.file_id })).file_path;
     await progress(job, 'clean', null, true);
     const d = await isolate(input, job.file_name ?? 'file', job.file_size, (p) => void progress(job, 'clean', p));
     if (d.outcome === 'nothing') return setJob(job.id, 'nothing');
@@ -374,8 +406,7 @@ async function process1(job: Job) {
     if (e instanceof ApiError && e.code === 400) return setJob(job.id, 'failed', { error: msg }); // a wrong request stays wrong
     retryLater(job, msg);
   } finally {
-    if (input) await unlink(input).catch(() => {}); // the Bot API server's copy of the original
-    await sweep();
+    await scrub();
     await settle(job.batch_id);
   }
 }
@@ -419,6 +450,7 @@ async function settle(id: number) {
   if (!b || b.status === 'finished') return;
   const jobs = q('SELECT * FROM jobs WHERE batch_id = ?').all(id) as unknown as Job[];
   if (jobs.some((j) => !ENDED.includes(`'${j.status}'`))) return;
+  started.delete(id);
   if (!jobs.length) {
     q(`UPDATE batches SET status = 'finished', updated_at = ? WHERE id = ?`).run(Date.now(), id);
     if (b.prompt_id) await soft('deleteMessage', { chat_id: b.chat_id, message_id: b.prompt_id });
@@ -446,19 +478,24 @@ async function onMessage(m: any) {
   const moved = q('SELECT value FROM state WHERE key = ?').get(`moved:${m.chat.id}`) as { value: string } | undefined;
   if (moved) m.chat.id = Number(moved.value);
   const chat = m.chat.id, lang = langOf(m.from), user = senderOf(m), t = T[lang];
-  const cmd = String(m.text ?? m.caption ?? '').match(/^\/(\w+)(@\w+)?/);
+  const said = String(m.text ?? m.caption ?? '');
+  const hasFile = [m, m.reply_to_message, m.external_reply].some((x) => x && mediaOf(x));
+  const tagged = hasFile && !(m.from?.is_bot && !m.sender_chat) && new RegExp(`(?<!\\w)@${me}(?!\\w)`, 'i').test(said); // no file: someone is just talking about the bot
+  const cmd = said.match(/^\/(\w+)(@\w+)?/) ?? (tagged ? ['', 'clean'] : null);
   if (cmd?.[2] && cmd[2].slice(1).toLowerCase() !== me.toLowerCase()) return; // a command for another bot
   switch (cmd?.[1]) {
     case 'start': case 'help': return void await say(chat, threadOf(m), t.start, m.message_id);
-    case 'off': q('INSERT OR IGNORE INTO muted VALUES (?, ?)').run(chat, user); return void await say(chat, threadOf(m), t.off, m.message_id);
-    case 'on': q('DELETE FROM muted WHERE chat_id = ? AND user_id = ?').run(chat, user); return void await say(chat, threadOf(m), t.on, m.message_id);
+    case 'off': q('DELETE FROM buttons WHERE chat_id = ? AND user_id = ?').run(chat, user); return void await say(chat, threadOf(m), t.off, m.message_id);
+    case 'on': q('INSERT OR IGNORE INTO buttons VALUES (?, ?)').run(chat, user); return void await say(chat, threadOf(m), t.on, m.message_id);
     case 'clean': {
       const target = mediaOf(m) ? m : m.reply_to_message && mediaOf(m.reply_to_message) ? m.reply_to_message
         : m.external_reply && mediaOf(m.external_reply) ? { ...m.external_reply, message_id: m.message_id } : m; // a reply to a file from another chat
       return cleanRequest(m, target, user, lang);
     }
   }
-  if (offerable(m) && !isMuted(chat, user)) offer(m, user, lang);
+  if (!offerable(m)) return;
+  if (m.media_group_id) remember(m, user, lang, wantsButton(chat, user));
+  else if (wantsButton(chat, user)) offer(m, user, lang);
 }
 
 async function onCallback(q_: any) {
@@ -503,11 +540,15 @@ async function updatesLoop() {
 }
 
 async function queueLoop() {
+  let scrubbed = Date.now();
   for (;;) {
     queueBeat = Date.now();
     const job = nextJob();
-    if (job) await process1(job).catch((e) => console.error('queue:', e instanceof Error ? e.message : e));
-    else await sleep(TICK);
+    if (job) { await process1(job).catch((e) => console.error('queue:', e instanceof Error ? e.message : e)); scrubbed = Date.now(); }
+    else {
+      if (Date.now() - scrubbed > SCRUB) { scrubbed = Date.now(); await scrub(); }
+      await sleep(TICK);
+    }
   }
 }
 
@@ -539,13 +580,8 @@ function watchdog() {
 
 /** After a crash or restart: whatever was in progress goes back in line, its leftovers go away. */
 async function recover() {
-  await sweep();
-  for (const part of CACHE_PARTS) { // nothing is in work yet: a file left here lost its job in the crash
-    for (const n of await readdir(join(CACHE, part)).catch(() => [] as string[])) await rm(join(CACHE, part, n), { force: true });
-  }
+  await scrub();
   for (const j of q(`SELECT * FROM jobs WHERE status IN ('running', 'sending')`).all() as unknown as Job[]) {
-    if (j.input) await unlink(j.input).catch(() => {});
-    q('UPDATE jobs SET input = NULL WHERE id = ?').run(j.id);
     retryLater(j, 'interrupted');
     await settle(j.batch_id);
   }
@@ -559,7 +595,6 @@ async function main() {
   for (const [l, code] of [['ru', 'ru'], ['en', '']] as const) {
     await tg('setMyCommands', { scope: { type: 'all_group_chats' }, commands: [
       { command: 'start', description: l === 'ru' ? 'Как пользоваться' : 'How to use' },
-      { command: 'clean', description: l === 'ru' ? 'Очистить файл (ответом на сообщение)' : 'Clean a file (as a reply)' },
       { command: 'off', description: l === 'ru' ? 'Не показывать кнопку под моими файлами' : 'No button under my files' },
       { command: 'on', description: l === 'ru' ? 'Показывать кнопку под моими файлами' : 'Button under my files' },
     ], ...(code ? { language_code: code } : {}) });
