@@ -18,7 +18,7 @@ export interface Job {
 export interface Batch {
   id: number; chat_id: number; thread_id: number | null; user_id: number; lang: string; reply_to: number;
   status: 'open' | 'offered' | 'queued' | 'finished'; prompt_id: number | null; last_at: number; last_edit: number;
-  created_at: number; updated_at: number;
+  shown: number; created_at: number; updated_at: number;
 }
 
 export function openDb(path: string) {
@@ -30,7 +30,7 @@ export function openDb(path: string) {
     CREATE TABLE IF NOT EXISTS batches (
       id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, thread_id INTEGER, user_id INTEGER NOT NULL, lang TEXT NOT NULL,
       reply_to INTEGER NOT NULL, status TEXT NOT NULL, prompt_id INTEGER, last_at INTEGER NOT NULL,
-      last_edit INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      last_edit INTEGER NOT NULL DEFAULT 0, shown INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS jobs (
       id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, thread_id INTEGER, message_id INTEGER NOT NULL,
@@ -45,5 +45,6 @@ export function openDb(path: string) {
     CREATE TABLE IF NOT EXISTS muted (chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (chat_id, user_id));
     CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
   `);
+  try { db.exec('ALTER TABLE batches ADD COLUMN shown INTEGER NOT NULL DEFAULT 0'); } catch { /* already there */ }
   return db;
 }

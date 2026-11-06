@@ -19,7 +19,7 @@ const fixture = (id) => made[id] ?? (existsSync(fx(id)) ? fx(id) : null);
 
 const start = () => {
   bot = spawn(process.execPath, [dist], { stdio: 'inherit', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'),
-    WINDOW_MS: '80', WINDOW_MAX_MS: '400', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
+    WINDOW_MS: '600', WINDOW_MAX_MS: '3000', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
   return until(() => tg.of('setMyCommands').length >= 2, 'bot start');
 };
 const db = () => new DatabaseSync(join(tmp, 'bot.db'), { readOnly: true });
@@ -54,6 +54,17 @@ test('a supported file gets one button, and nothing is downloaded', async () => 
   await settle();
   assert.equal(tg.downloaded.length, 0);
   assert.equal(job(m.message_id).status, 'offered');
+});
+
+test('the button appears at once, a later file joins it', async () => {
+  const t = Date.now();
+  tg.send({ message: doc('photo.jpg', 'a.jpg') });
+  await prompt();
+  assert.ok(Date.now() - t < 300, `took ${Date.now() - t} ms`);
+  await settle();
+  tg.send({ message: doc('photo.png', 'b.png') });
+  await until(() => tg.of('editMessageText').some((c) => /Файлов: 2/.test(c.text)), 'joined');
+  assert.equal(tg.of('sendMessage').length, 1);
 });
 
 test('silence on chatter, unsupported files, other bots and private chats', async () => {
@@ -121,7 +132,7 @@ test('a pack of files gets one button; every file answers its own message; a dou
   ms[5] = doc('fake.pdf');
   for (const m of ms) tg.send({ message: m });
   const p = await prompt();
-  assert.match(p.text, /Файлов: 6/);
+  await until(() => /Файлов: 6/.test(p.text) || tg.of('editMessageText').some((c) => /Файлов: 6/.test(c.text)), 'count');
   await settle();
   assert.equal(tg.of('sendMessage').length, 1);
   press(p); press(p);
@@ -134,7 +145,9 @@ test('a pack of files gets one button; every file answers its own message; a dou
 test('a pack with every file cleaned leaves no summary behind', async () => {
   const ms = [doc('photo.jpg', 'a.jpg'), doc('photo.png', 'b.png')];
   for (const m of ms) tg.send({ message: m });
-  press(await prompt());
+  const p = await prompt();
+  await settle();
+  press(p);
   await until(() => tg.sent.length === 2 && tg.of('deleteMessage').length === 1, 'prompt removed');
   await settle();
   assert.ok(!tg.of('editMessageText').some((c) => /Готово/.test(c.text)));
@@ -146,6 +159,21 @@ test('the second file is much faster than the first: the worker stays warm', asy
   tg.send({ message: base({ text: '/clean', reply_to_message: doc('photo.jpg') }) });
   await until(() => tg.sent.length === 1, 'send');
   assert.ok(Date.now() - t < 1500, `took ${Date.now() - t} ms`);
+});
+
+test('several people at once: each gets their own button, and a hundred files from one do not hold up the others', async () => {
+  const anna = { id: 21, language_code: 'ru' }, boris = { id: 22, language_code: 'ru' }, vera = { id: 23, language_code: 'en' };
+  const pile = Array.from({ length: 12 }, (_, i) => doc('photo.jpg', `pile${i}.jpg`, { from: anna }));
+  const b = doc('photo.png', 'b.png', { from: boris }), v = doc('doc.pdf', 'v.pdf', { from: vera });
+  for (const m of [...pile, b, v]) tg.send({ message: m });
+  await until(() => tg.of('sendMessage').filter((c) => c.reply_markup).length === 3, 'three buttons');
+  const offers = tg.of('sendMessage').filter((c) => c.reply_markup);
+  assert.deepEqual(offers.map((c) => c.reply_markup.inline_keyboard[0][0].text).sort(), ['Clean all: 1'.replace('Clean all: 1', 'Remove metadata'), 'Очистить все: 12', 'Очистить от метаданных'].sort());
+  for (const p of offers) press(p);
+  await until(() => tg.sent.length === 14, 'all delivered', 60_000);
+  const order = tg.sent.map((s) => s.reply);
+  assert.ok(order.indexOf(b.message_id) <= 2 && order.indexOf(v.message_id) <= 2, `boris and vera wait at most one file: ${order.indexOf(b.message_id)}, ${order.indexOf(v.message_id)}`);
+  assert.deepEqual(new Set(order).size, 14);
 });
 
 test('/off hides the button only for that person and that group; /clean still works; /on brings it back', async () => {

@@ -37,7 +37,7 @@ tg.rate = { limit: 8, perMs: 1000 }; tg.flaky = 0.03;
 let bot, deaths = [], kills = 0;
 const start = async () => {
   const before = tg.of('setMyCommands').length;
-  const b = spawn(process.execPath, [dist('bot.mjs')], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'), WINDOW_MS: '120', WINDOW_MAX_MS: '500', TICK_MS: '15', RETRY_MS: '40', EDIT_EVERY_MS: '100', SLEEP_SCALE: '0.05' } });
+  const b = spawn(process.execPath, [dist('bot.mjs')], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'), WINDOW_MS: '300', WINDOW_MAX_MS: '1500', TICK_MS: '15', RETRY_MS: '40', EDIT_EVERY_MS: '100', SLEEP_SCALE: '0.05' } });
   b.stderr.on('data', () => {});
   b.on('exit', (code, sig) => { if (sig !== 'SIGKILL') deaths.push(`${code}/${sig}`); });
   bot = b;
@@ -80,7 +80,7 @@ function pressAny() {
   const offers = tg.of('sendMessage').filter((c) => c.reply_markup && !c.pressed);
   if (!offers.length) return;
   const c = pick(offers);
-  if (chance(0.12) && !/Файлов|Files/.test(c.text)) { c.pressed = true; stale.push(c); return; } // nobody ever presses this one
+  if (chance(0.12) && c.chat_id !== -1001) { c.pressed = true; stale.push(c); return; } // nobody ever presses this one
   c.pressed = true;
   const q = () => tg.send({ callback_query: { id: `q${msgId++}`, from: pick(users), data: c.reply_markup.inline_keyboard[0][0].callback_data, message: { message_id: 1, chat: { id: c.chat_id, type: 'supergroup' } } } });
   q(); if (chance(0.25)) q(); // a double tap

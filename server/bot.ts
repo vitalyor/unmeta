@@ -19,8 +19,8 @@ const WORK = process.env.WORK_DIR ?? '/tmp/unmeta';
 const DB_FILE = process.env.DB_FILE ?? join(WORK, 'unmeta.db');
 const CACHE = process.env.CACHE_DIR ?? join(WORK, '..', TOKEN); // where the Bot API server keeps downloaded files
 const CACHE_PARTS = ['documents', 'videos', 'photos', 'music', 'voice', 'animations', 'video_notes', 'thumbnails', 'temp'];
-// Files from one person arriving together get one button, not a hundred
-const WINDOW = env('WINDOW_MS', 2500), WINDOW_MAX = env('WINDOW_MAX_MS', 15000);
+// The button appears at once; files that follow within this time join it, so a hundred files get one button
+const WINDOW = env('WINDOW_MS', 8000), WINDOW_MAX = env('WINDOW_MAX_MS', 120_000);
 const TICK = env('TICK_MS', 300), RETRY = env('RETRY_MS', 5000), EDIT_EVERY = env('EDIT_EVERY_MS', 3000);
 const JOB_MIN = env('JOB_MIN_MS', 120_000), SLEEP_SCALE = env('SLEEP_SCALE', 1);
 const MAX_ATTEMPTS = 3;
@@ -191,32 +191,48 @@ const threadOf = (m: any): number | null => (m.is_topic_message ? m.message_thre
 const senderOf = (m: any): number => (m.from?.is_bot && m.sender_chat ? m.sender_chat.id : m.from?.id ?? m.sender_chat?.id ?? m.chat.id);
 
 function offer(m: any, user: number, lang: string) {
-  const chat = m.chat.id, thread = threadOf(m);
+  const chat = m.chat.id, thread = threadOf(m), now = Date.now();
   if (jobIn(chat, m.message_id)) return; // Telegram repeated an update
   tx(() => {
-    const open = q(`SELECT * FROM batches WHERE chat_id = ? AND thread_id IS ? AND user_id = ? AND status = 'open'`).get(chat, thread, user) as Batch | undefined;
+    const open = q(`SELECT * FROM batches WHERE chat_id = ? AND thread_id IS ? AND user_id = ? AND status IN ('open', 'offered') AND last_at > ? AND created_at > ? ORDER BY id DESC`)
+      .get(chat, thread, user, now - WINDOW, now - WINDOW_MAX) as Batch | undefined;
     const batch = open?.id ?? newBatch(chat, thread, user, lang, m.message_id, 'open');
     addJob(chat, thread, m.message_id, user, lang, mediaOf(m)!, batch, 'offered');
-    q('UPDATE batches SET last_at = ? WHERE id = ?').run(Date.now(), batch);
+    q('UPDATE batches SET last_at = ? WHERE id = ?').run(now, batch);
   });
 }
 
+const offerText = (b: Batch, jobs: Job[]) => {
+  const t = texts(b.lang), n = jobs.length;
+  return {
+    text: n === 1 ? fmt(t.offer, { name: esc(jobs[0].file_name ?? '') }) : fmt(t.offerMany, { n }),
+    reply_markup: { inline_keyboard: [[{ text: n === 1 ? t.btnClean : fmt(t.btnCleanMany, { n }), callback_data: `b:${b.id}` }]] },
+  };
+};
+
 async function showOffers() {
-  const now = Date.now();
-  for (const b of q(`SELECT * FROM batches WHERE status = 'open' AND (last_at < ? OR created_at < ?)`).all(now - WINDOW, now - WINDOW_MAX) as unknown as Batch[]) {
+  for (const b of q(`SELECT * FROM batches WHERE status = 'open'`).all() as unknown as Batch[]) {
     const jobs = q(`SELECT * FROM jobs WHERE batch_id = ? AND status = 'offered'`).all(b.id) as unknown as Job[];
     if (!jobs.length) { q('DELETE FROM batches WHERE id = ?').run(b.id); continue; }
-    const t = texts(b.lang), n = jobs.length;
     try {
-      const m = await say(b.chat_id, b.thread_id, n === 1 ? fmt(t.offer, { name: esc(jobs[0].file_name ?? '') }) : fmt(t.offerMany, { n }), b.reply_to,
-        { reply_markup: { inline_keyboard: [[{ text: n === 1 ? t.btnClean : fmt(t.btnCleanMany, { n }), callback_data: `b:${b.id}` }]] } });
-      q(`UPDATE batches SET status = 'offered', prompt_id = ?, updated_at = ? WHERE id = ?`).run(m.message_id, Date.now(), b.id);
+      const { text, reply_markup } = offerText(b, jobs);
+      const m = await say(b.chat_id, b.thread_id, text, b.reply_to, { reply_markup });
+      q(`UPDATE batches SET status = 'offered', prompt_id = ?, shown = ?, updated_at = ? WHERE id = ?`).run(m.message_id, jobs.length, Date.now(), b.id);
     } catch (e) {
       if (!(e instanceof ApiError) || e.code === 429 || e.code >= 500) continue; // Telegram or the network: the next tick tries again
       console.error('offer failed:', e instanceof Error ? e.message : e);
       const error = `offer-failed: ${e instanceof Error ? e.message : e}`.slice(0, 120);
       tx(() => { for (const j of jobs) setJob(j.id, 'failed', { error }); q(`UPDATE batches SET status = 'finished', updated_at = ? WHERE id = ?`).run(Date.now(), b.id); });
     }
+  }
+  // files that joined a button already on screen: its count catches up, at most once a second
+  const now = Date.now();
+  for (const b of q(`SELECT * FROM batches WHERE status = 'offered' AND last_at > ? AND last_edit < ?`).all(now - WINDOW, now - EDIT_EVERY / 3) as unknown as Batch[]) {
+    const jobs = q(`SELECT * FROM jobs WHERE batch_id = ? AND status = 'offered'`).all(b.id) as unknown as Job[];
+    if (jobs.length === b.shown || !jobs.length || !b.prompt_id) continue;
+    q('UPDATE batches SET shown = ?, last_edit = ? WHERE id = ?').run(jobs.length, now, b.id);
+    const { text, reply_markup } = offerText(b, jobs);
+    await edit(b.chat_id, b.prompt_id, text, reply_markup);
   }
 }
 
