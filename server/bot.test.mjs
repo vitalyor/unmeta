@@ -131,6 +131,23 @@ test('a pack of files gets one button; every file answers its own message; a dou
   assert.equal(tg.sent.length, 5);
 });
 
+test('a pack with every file cleaned leaves no summary behind', async () => {
+  const ms = [doc('photo.jpg', 'a.jpg'), doc('photo.png', 'b.png')];
+  for (const m of ms) tg.send({ message: m });
+  press(await prompt());
+  await until(() => tg.sent.length === 2 && tg.of('deleteMessage').length === 1, 'prompt removed');
+  await settle();
+  assert.ok(!tg.of('editMessageText').some((c) => /Готово/.test(c.text)));
+});
+
+test('the second file is much faster than the first: the worker stays warm', async () => {
+  await settle();
+  const t = Date.now();
+  tg.send({ message: base({ text: '/clean', reply_to_message: doc('photo.jpg') }) });
+  await until(() => tg.sent.length === 1, 'send');
+  assert.ok(Date.now() - t < 1500, `took ${Date.now() - t} ms`);
+});
+
 test('/off hides the button only for that person and that group; /clean still works; /on brings it back', async () => {
   tg.send({ message: base({ text: '/off' }) });
   await until(() => tg.of('sendMessage').length, 'answer');

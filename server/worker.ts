@@ -1,8 +1,9 @@
-// One file, one process: a damaged file, a zip bomb or a hung parser takes down this process, never the bot.
-// Gets { path, name }, answers once with what happened; a cleaned file stays on disk in its work folder.
+// Files are cleaned here, away from the bot: a damaged file, a zip bomb or a hung parser takes down this process, never
+// the bot. It stays warm between files (starting ExifTool takes 7 s on the server, a photo takes a fraction of one).
+// Gets { path, name }, answers with what happened; a cleaned file stays on disk in its work folder.
 import { dirname, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import { clean, kindOf, fileFromPath, makeThumb, workDir, DiskFile, PRESETS, CATEGORIES } from './engine';
+import { clean, kindOf, fileFromPath, makeThumb, warmUp, workDir, DiskFile, PRESETS, CATEGORIES } from './engine';
 import { safeName } from './chat';
 
 export type Done =
@@ -30,8 +31,9 @@ async function work({ path, name }: { path: string; name: string }): Promise<Don
 }
 
 process.on('disconnect', () => process.exit(1)); // the bot is gone: nobody needs the answer
-process.once('message', async (m: { path: string; name: string }) => {
+warmUp();
+process.on('message', async (m: { path: string; name: string }) => {
   let done: Done;
   try { done = await work(m); } catch (e) { done = { outcome: 'error', error: e instanceof Error ? e.message : String(e) }; }
-  process.send!(done, () => process.exit(0));
+  process.send!(done);
 });

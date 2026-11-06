@@ -2,7 +2,7 @@
 // Always the Maximum preset. Every file is a row in the database (db.ts): a restart loses nothing, a repeat runs
 // nothing twice, and each file is cleaned in its own process (worker.ts), so a bad file only costs that file.
 // Talks to a local Bot API server (files up to 2 GB, exchanged by path).
-import { fork } from 'node:child_process';
+import { fork, type ChildProcess } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
 import { readdir, rename, rm, statfs, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -251,13 +251,31 @@ function nextJob(): Job | undefined {
   return q('SELECT * FROM jobs WHERE id = ?').get(heads[0].id) as unknown as Job;
 }
 
+// One warm worker, taking files in turn. Replaced after a crash, a hang, a big file or 30 files, so nothing builds up.
+const WORKER_JOBS = 30, WORKER_HEAVY = 50 * 1024 ** 2;
+let worker: ChildProcess | null = null, workerJobs = 0;
+function warmWorker() {
+  if (worker) return worker;
+  const c = fork(join(import.meta.dirname, 'worker.mjs'), { detached: true, execArgv: ['--max-old-space-size=450'], stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+  c.on('exit', () => { if (worker === c) worker = null; });
+  c.on('error', () => {}); // a send to a dead worker: its exit answers the job
+  workerJobs = 0;
+  return (worker = c);
+}
+const killGroup = (c: ChildProcess) => { try { process.kill(-c.pid!, 'SIGKILL'); } catch { /* already gone */ } }; // the group: ffmpeg too
+
 function isolate(path: string, name: string, size: number): Promise<Done> {
   return new Promise((resolve) => {
-    const c = fork(join(import.meta.dirname, 'worker.mjs'), { detached: true, execArgv: ['--max-old-space-size=450'], stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
-    let answer: Done | undefined;
-    c.once('message', (m) => { answer = m as unknown as Done; });
-    const hung = setTimeout(() => { try { process.kill(-c.pid!, 'SIGKILL'); } catch { /* already gone */ } }, Math.max(JOB_MIN, size / BYTES_PER_MS)); // the group: ffmpeg too
-    c.on('exit', (code, signal) => { clearTimeout(hung); resolve(answer ?? { outcome: 'error', error: `worker-died:${signal ?? code}` }); });
+    const c = warmWorker();
+    const hung = setTimeout(() => killGroup(c), Math.max(JOB_MIN, size / BYTES_PER_MS));
+    const end = (d: Done) => { clearTimeout(hung); c.off('message', answered); c.off('exit', died); resolve(d); };
+    const answered = (m: unknown) => {
+      end(m as Done);
+      if (++workerJobs >= WORKER_JOBS || size > WORKER_HEAVY) { worker = null; killGroup(c); }
+    };
+    const died = (code: number | null, signal: string | null) => end({ outcome: 'error', error: `worker-died:${signal ?? code}` });
+    c.once('message', answered);
+    c.once('exit', died);
     c.send({ path, name });
   });
 }
@@ -360,7 +378,7 @@ async function settle(id: number) {
     const j = jobs[0];
     text = j.status === 'done' ? null : j.status === 'nothing' ? (j.photo ? t.photoNote : t.nothing) : j.status === 'failed' ? t.failed : reasonText(t, j.error);
   } else {
-    text = [fmt(t.summary, { done: count('done'), n: jobs.length }), count('nothing') ? fmt(t.sumNothing, { n: count('nothing') }) : '', count('skipped') ? fmt(t.sumSkipped, { n: count('skipped') }) : '', count('failed') ? fmt(t.sumFailed, { n: count('failed') }) : ''].filter(Boolean).join('\n');
+    text = count('done') === jobs.length ? null : [fmt(t.summary, { done: count('done'), n: jobs.length }), count('nothing') ? fmt(t.sumNothing, { n: count('nothing') }) : '', count('skipped') ? fmt(t.sumSkipped, { n: count('skipped') }) : '', count('failed') ? fmt(t.sumFailed, { n: count('failed') }) : ''].filter(Boolean).join('\n');
   }
   if (jobs.some((j) => j.error === 'bot-removed')) return;
   if (b.prompt_id) { if (text) await inChat(b.chat_id, (c) => tg('editMessageText', { chat_id: c, message_id: b.prompt_id, text, parse_mode: 'HTML' })).catch(() => {}); else await soft('deleteMessage', { chat_id: b.chat_id, message_id: b.prompt_id }); }
@@ -481,6 +499,7 @@ async function main() {
     ], ...(code ? { language_code: code } : {}) });
   }
   console.log(`@${me} ready`);
+  warmWorker();
   await Promise.all([updatesLoop(), queueLoop(), timersLoop()]);
 }
 
