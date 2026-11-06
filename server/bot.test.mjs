@@ -345,6 +345,20 @@ test('/clean takes the last file out of a pack: the pack and its button quietly 
   assert.equal(tg.sent.length, 1);
 });
 
+test('stuck without crashing: the watchdog exits so Docker can restart it', async () => {
+  bot.kill('SIGKILL'); await settle();
+  tg.stallPolls = false;
+  const b = spawn(process.execPath, [dist], { stdio: 'ignore', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), STALL_MS: '500', POLL_S: '1', TICK_MS: '10' } });
+  const code = new Promise((r) => b.on('exit', (c) => r(c)));
+  await until(() => existsSync(join(tmp, 'work/alive')), 'alive file');
+  const beat = statSync(join(tmp, 'work/alive')).mtimeMs;
+  assert.ok(Date.now() - beat < 2000, 'the health file is fresh');
+  tg.stallPolls = true;
+  assert.equal(await code, 1);
+  tg.stallPolls = false;
+  await start();
+});
+
 test('the database keeps ids and statuses, not file names', async () => {
   const m = doc('photo.jpg', 'секретное имя.jpg');
   tg.send({ message: base({ text: '/clean', reply_to_message: m }) });

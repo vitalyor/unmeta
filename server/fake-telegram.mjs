@@ -18,6 +18,7 @@ export class FakeTelegram {
       req.on('data', (d) => { body += d; }).on('end', async () => {
         const method = req.url.split('/').at(-1), p = JSON.parse(body || '{}');
         if (method === 'getUpdates') {
+          if (this.stallPolls) return; // a Bot API that accepted the call and went silent
           await new Promise((s) => setTimeout(s, 5));
           this.queue = this.queue.filter((u) => u.update_id >= p.offset); // an update stays until the next poll confirms it: a crash repeats it
           return res.end(JSON.stringify({ ok: true, result: this.queue.slice(0, 100) }));

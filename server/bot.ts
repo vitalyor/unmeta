@@ -4,7 +4,7 @@
 // Talks to a local Bot API server (files up to 2 GB, exchanged by path).
 import { fork, type ChildProcess } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import { readdir, rename, rm, statfs, unlink } from 'node:fs/promises';
+import { readdir, rename, rm, statfs, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { esc, mediaOf, offerable, sendCall, type Item, type Shape } from './chat';
 import { openDb, ENDED, LIVE, WEEK, type Batch, type Job, type JobStatus } from './db';
@@ -21,9 +21,10 @@ const CACHE = process.env.CACHE_DIR ?? join(WORK, '..', TOKEN); // where the Bot
 const CACHE_PARTS = ['documents', 'videos', 'photos', 'music', 'voice', 'animations', 'video_notes', 'thumbnails', 'temp'];
 // One button under the last file: it waits for a pause in someone's files, and moves down if more arrive while nobody pressed
 const QUIET = env('QUIET_MS', 1500), WINDOW = env('WINDOW_MS', 60_000), WINDOW_MAX = env('WINDOW_MAX_MS', 600_000);
-const TICK = env('TICK_MS', 300), RETRY = env('RETRY_MS', 5000), EDIT_EVERY = env('EDIT_EVERY_MS', 3500);
+const POLL = env('POLL_S', 50), TICK = env('TICK_MS', 300), RETRY = env('RETRY_MS', 5000), EDIT_EVERY = env('EDIT_EVERY_MS', 3500);
 const JOB_MIN = env('JOB_MIN_MS', 120_000), SLEEP_SCALE = env('SLEEP_SCALE', 1);
 const MAX_ATTEMPTS = 3;
+const STALL = env('STALL_MS', 300_000), QUEUE_STALL = env('QUEUE_STALL_MS', 3 * 3600_000); // longer than the slowest honest file
 const BYTES_PER_MS = 2 * 1024 ** 2 / 1000; // slowest honest speed for one file, before it counts as hung
 
 // ---------- texts ----------
@@ -484,11 +485,15 @@ async function onCallback(q_: any) {
 }
 
 // ---------- three loops: Telegram's updates, the queue, the timers ----------
+let polled = Date.now(), queueBeat = Date.now();
 async function updatesLoop() {
   for (let offset = 0; ;) {
     let updates: any[] = [];
-    try { updates = await tg('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] }); }
-    catch (e) { console.error('getUpdates:', e instanceof Error ? e.message : e); await sleep(5000 * SLEEP_SCALE); continue; }
+    try {
+      updates = await tg('getUpdates', { offset, timeout: POLL, allowed_updates: ['message', 'callback_query'] });
+      polled = Date.now();
+      await writeFile(join(WORK, 'alive'), String(polled)).catch(() => {}); // Docker's health check looks at this file
+    } catch (e) { console.error('getUpdates:', e instanceof Error ? e.message : e); await sleep(5000 * SLEEP_SCALE); continue; }
     for (const u of updates) {
       offset = u.update_id + 1;
       try { if (u.message) await onMessage(u.message); else if (u.callback_query) await onCallback(u.callback_query); }
@@ -499,6 +504,7 @@ async function updatesLoop() {
 
 async function queueLoop() {
   for (;;) {
+    queueBeat = Date.now();
     const job = nextJob();
     if (job) await process1(job).catch((e) => console.error('queue:', e instanceof Error ? e.message : e));
     else await sleep(TICK);
@@ -521,6 +527,14 @@ async function timersLoop() {
     } catch (e) { console.error('timers:', e instanceof Error ? e.message : e); }
     await sleep(TICK);
   }
+}
+
+/** Stuck without having crashed: exit, and Docker starts a clean one. The queue is in the database, nothing is lost. */
+function watchdog() {
+  setInterval(() => {
+    const stuck = Date.now() - polled > STALL ? 'no updates from Telegram' : Date.now() - queueBeat > QUEUE_STALL ? 'queue stuck' : null;
+    if (stuck) { console.error(`watchdog: ${stuck}, restarting`); process.exit(1); }
+  }, Math.min(STALL, 30_000) / 2).unref();
 }
 
 /** After a crash or restart: whatever was in progress goes back in line, its leftovers go away. */
@@ -552,6 +566,8 @@ async function main() {
   }
   console.log(`@${me} ready`);
   warmWorker();
+  polled = queueBeat = Date.now();
+  watchdog();
   await Promise.all([updatesLoop(), queueLoop(), timersLoop()]);
 }
 

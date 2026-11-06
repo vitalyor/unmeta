@@ -1,9 +1,13 @@
 # Local Bot API server (files up to 2 GB, exchanged by path) + the bot. Nothing is exposed to the internet:
 # both only talk out to Telegram. Secrets live in .env next to this file (see .env.example).
+x-logs: &logs # logs must not fill the disk
+  driver: json-file
+  options: { max-size: 10m, max-file: "3" }
 services:
   bot-api:
     image: aiogram/telegram-bot-api:latest
     restart: unless-stopped
+    logging: *logs
     env_file: .env
     environment:
       TELEGRAM_LOCAL: "1"
@@ -12,6 +16,13 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    logging: *logs
+    healthcheck: # the bot touches this file after every answer from Telegram; heal.sh restarts it when it stops
+      test: ["CMD-SHELL", "test -n \"$(find /var/lib/telegram-bot-api/work/alive -mmin -3 2>/dev/null)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+      start_period: 90s
     env_file: .env
     environment:
       BOT_API: http://bot-api:8081

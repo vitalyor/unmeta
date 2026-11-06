@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart the Unmeta bot if it is stuck
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/unmeta-bot/heal.sh
