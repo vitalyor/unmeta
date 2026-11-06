@@ -37,7 +37,7 @@ tg.rate = { limit: 8, perMs: 1000 }; tg.flaky = 0.03;
 let bot, deaths = [], kills = 0;
 const start = async () => {
   const before = tg.of('setMyCommands').length;
-  const b = spawn(process.execPath, [dist('bot.mjs')], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'), WINDOW_MS: '300', WINDOW_MAX_MS: '1500', TICK_MS: '15', RETRY_MS: '40', EDIT_EVERY_MS: '100', SLEEP_SCALE: '0.05' } });
+  const b = spawn(process.execPath, [dist('bot.mjs')], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'), QUIET_MS: '60', WINDOW_MS: '400', WINDOW_MAX_MS: '2000', TICK_MS: '15', RETRY_MS: '40', EDIT_EVERY_MS: '100', SLEEP_SCALE: '0.05' } });
   b.stderr.on('data', () => {});
   b.on('exit', (code, sig) => { if (sig !== 'SIGKILL') deaths.push(`${code}/${sig}`); });
   bot = b;

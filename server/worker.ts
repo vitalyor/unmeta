@@ -20,7 +20,10 @@ async function work({ path, name }: { path: string; name: string }): Promise<Don
   if (kind === 'unsupported') return { outcome: 'unsupported' };
   if (kind === 'text') return { outcome: 'text' };
   if (kind !== 'av' && file.size > MAX_IN_MEMORY) return { outcome: 'too-big' };
-  const r = await clean(file, PRESETS.max);
+  let last = 0;
+  const r = await clean(file, PRESETS.max, (progress) => { // video only: ffmpeg knows how far it is
+    if (Date.now() - last > 1000) { last = Date.now(); process.send!({ progress }); }
+  });
   const found = CATEGORIES.filter((c) => r.before.found[c]);
   if (!found.length) return { outcome: 'nothing' };
   let out: string;

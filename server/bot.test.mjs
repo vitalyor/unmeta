@@ -19,7 +19,7 @@ const fixture = (id) => made[id] ?? (existsSync(fx(id)) ? fx(id) : null);
 
 const start = () => {
   bot = spawn(process.execPath, [dist], { stdio: 'inherit', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'),
-    WINDOW_MS: '600', WINDOW_MAX_MS: '3000', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
+    QUIET_MS: '60', WINDOW_MS: '700', WINDOW_MAX_MS: '3000', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
   return until(() => tg.of('setMyCommands').length >= 2, 'bot start');
 };
 const db = () => new DatabaseSync(join(tmp, 'bot.db'), { readOnly: true });
@@ -56,15 +56,20 @@ test('a supported file gets one button, and nothing is downloaded', async () => 
   assert.equal(job(m.message_id).status, 'offered');
 });
 
-test('the button appears at once, a later file joins it', async () => {
-  const t = Date.now();
-  tg.send({ message: doc('photo.jpg', 'a.jpg') });
-  await prompt();
-  assert.ok(Date.now() - t < 300, `took ${Date.now() - t} ms`);
+test('the button waits for a pause and sits under the last file; more files move it down', async () => {
+  const a1 = doc('photo.jpg', 'a.jpg'), a2 = doc('photo.png', 'b.png');
+  tg.send({ message: a1 }); tg.send({ message: a2 });
+  const p = await prompt();
+  assert.equal(p.reply_parameters.message_id, a2.message_id, 'under the last file');
+  assert.match(p.text, /Файлов: 2/);
   await settle();
-  tg.send({ message: doc('photo.png', 'b.png') });
-  await until(() => tg.of('editMessageText').some((c) => /Файлов: 2/.test(c.text)), 'joined');
-  assert.equal(tg.of('sendMessage').length, 1);
+  assert.equal(tg.of('sendMessage').length, 1, 'no count changing in place');
+  assert.equal(tg.of('editMessageText').length, 0);
+  const a3 = doc('photo.jpg', 'c.jpg');
+  tg.send({ message: a3 });
+  const moved = await until(() => tg.of('sendMessage').find((c) => /Файлов: 3/.test(c.text)), 'moved down');
+  assert.equal(moved.reply_parameters.message_id, a3.message_id);
+  await until(() => tg.of('deleteMessage').length === 1, 'old button removed');
 });
 
 test('silence on chatter, unsupported files, other bots and private chats', async () => {
@@ -132,11 +137,11 @@ test('a pack of files gets one button; every file answers its own message; a dou
   ms[5] = doc('fake.pdf');
   for (const m of ms) tg.send({ message: m });
   const p = await prompt();
-  await until(() => /Файлов: 6/.test(p.text) || tg.of('editMessageText').some((c) => /Файлов: 6/.test(c.text)), 'count');
+  assert.match(p.text, /Файлов: 6/);
   await settle();
   assert.equal(tg.of('sendMessage').length, 1);
   press(p); press(p);
-  await until(() => tg.of('editMessageText').some((c) => /Готово\. Очищено: 5 из 6/.test(c.text)), 'summary');
+  await until(() => tg.of('editMessageText').some((c) => /Очищено: 5 из 6/.test(c.text)), 'summary');
   assert.deepEqual(tg.sent.map((s) => s.reply).sort(), ms.slice(0, 5).map((m) => m.message_id).sort());
   await settle();
   assert.equal(tg.sent.length, 5);
@@ -176,6 +181,24 @@ test('several people at once: each gets their own button, and a hundred files fr
   assert.deepEqual(new Set(order).size, 14);
 });
 
+test('a pack shows a bar, the current file and what is left; a single file shows its step', async () => {
+  const ms = Array.from({ length: 3 }, (_, i) => doc('photo.jpg', `bar${i}.jpg`));
+  for (const m of ms) tg.send({ message: m });
+  press(await prompt());
+  await until(() => tg.sent.length === 3, 'sent');
+  const texts = tg.of('editMessageText').map((c) => c.text).join('\n');
+  assert.match(texts, /Чищу файлы: \d из 3/);
+  assert.match(texts, /[▰▱]{12} \d+%/);
+  assert.match(texts, /Сейчас: bar\d\.jpg/);
+  tg.calls = []; tg.sent = [];
+  tg.send({ message: base({ text: '/clean', reply_to_message: doc('photo.jpg', 'one.jpg') }) });
+  await until(() => tg.sent.length === 1, 'single');
+  const one = tg.of('editMessageText').map((c) => c.text).join('\n');
+  assert.match(one, /Шаг 1 из 3: Получаю файл/);
+  assert.match(one, /Шаг 3 из 3: Отправляю/);
+  assert.match(tg.sent[0].caption, /^<b>Готово: файл чистый<\/b>\nУдалено:/);
+});
+
 test('/off hides the button only for that person and that group; /clean still works; /on brings it back', async () => {
   tg.send({ message: base({ text: '/off' }) });
   await until(() => tg.of('sendMessage').length, 'answer');
@@ -206,7 +229,7 @@ test('/clean: again says already done, on text asks for a file, a failed file ca
 });
 
 test('a damaged, empty, fake or vanished file gets an honest answer and leaves nothing behind', async () => {
-  for (const [id, text] of [['corrupt.mp4', /повреждён/], ['empty.mp4', /повреждён/], ['fake.pdf', /не умею|повреждён/], ['vanished.mp4', /Не получилось/]]) {
+  for (const [id, text] of [['corrupt.mp4', /повреждён/], ['empty.mp4', /повреждён/], ['fake.pdf', /не поддерживается|повреждён/], ['vanished.mp4', /Не получилось/]]) {
     tg.calls = [];
     const m = doc(id);
     tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
@@ -299,7 +322,7 @@ test('killed mid-work: restarts, finishes, repeats nothing; a repeated update do
 
 test('a file that hangs is killed, the job fails honestly, the bot lives on', async () => {
   bot.kill('SIGKILL'); await settle();
-  const fast = spawn(process.execPath, [dist], { stdio: 'ignore', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), WINDOW_MS: '80', TICK_MS: '10', RETRY_MS: '10', JOB_MIN_MS: '1', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
+  const fast = spawn(process.execPath, [dist], { stdio: 'ignore', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), QUIET_MS: '40', TICK_MS: '10', RETRY_MS: '10', JOB_MIN_MS: '1', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
   const m = doc('photo.jpg');
   tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
   await until(() => job(m.message_id)?.status === 'failed', 'failed');
