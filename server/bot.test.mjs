@@ -178,12 +178,13 @@ test('/clean: again says already done, on text asks for a file, a failed file ca
 });
 
 test('a damaged, empty, fake or vanished file gets an honest answer and leaves nothing behind', async () => {
-  for (const [id, text] of [['corrupt.mp4', /повреждён|не умею/], ['empty.mp4', /не умею/], ['fake.pdf', /не умею|повреждён/], ['vanished.mp4', /Не получилось/]]) {
+  for (const [id, text] of [['corrupt.mp4', /повреждён/], ['empty.mp4', /повреждён/], ['fake.pdf', /не умею|повреждён/], ['vanished.mp4', /Не получилось/]]) {
     tg.calls = [];
     const m = doc(id);
     tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
     await until(() => tg.of('editMessageText').some((c) => text.test(c.text)), id);
     assert.notEqual(job(m.message_id).error, null);
+    assert.ok(!tg.of('editMessageText').some((c) => /всё в порядке/.test(c.text)), 'never calls a broken file fine');
   }
   await settle();
   assert.deepEqual((await readdir(join(tmp, 'work'))).filter((n) => n.startsWith('job-')), []);

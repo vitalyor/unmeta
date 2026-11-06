@@ -8,13 +8,14 @@ import { safeName } from './chat';
 
 export type Done =
   | { outcome: 'cleaned'; out: string; name: string; thumb: string | null; removed: string[]; left: string[] }
-  | { outcome: 'nothing' | 'text' | 'unsupported' | 'too-big' }
+  | { outcome: 'nothing' | 'text' | 'unsupported' | 'too-big' | 'empty' }
   | { outcome: 'error'; error: string };
 
 const MAX_IN_MEMORY = 200 * 1024 ** 2; // photos and documents are parsed in memory on a 1 GB server
 
 async function work({ path, name }: { path: string; name: string }): Promise<Done> {
   const file = await fileFromPath(path, name);
+  if (!file.size) return { outcome: 'empty' };
   const kind = await kindOf(file);
   if (kind === 'unsupported') return { outcome: 'unsupported' };
   if (kind === 'text') return { outcome: 'text' };

@@ -39,11 +39,11 @@ const T = {
     nothing: 'Скрытых данных нет: проверил, файл чистый.',
     photoNote: 'Проверил это фото: скрытых данных нет. Telegram сжал его при отправке. Чтобы сохранить качество, отправляйте фото как файл.',
     text: 'В текстовых файлах негде прятать сведения о вас. Проверьте только сам текст.',
-    unsupported: 'Этот формат я пока не умею чистить. С файлом всё в порядке, я его не трогал.',
+    unsupported: 'Этот формат я пока не умею чистить, поэтому не трогал файл. Скрытые данные в нём могут быть.',
     tooBig: 'Файл больше 2 ГБ: Telegram не даст мне его скачать.',
     tooBigDoc: 'Такой большой документ или фото я пока не потяну. Попробуйте сайт: https://unmeta.nolim.cloud',
     failed: 'Не получилось очистить этот файл. Не отправляйте его как чистый.',
-    corrupt: 'Не получилось открыть файл: возможно, он повреждён.',
+    corrupt: 'Не получилось открыть файл: похоже, он повреждён или пуст. Не отправляйте его как чистый.',
     replyToFile: 'Ответьте /clean на сообщение с файлом.',
     offer: 'В файле <b>{name}</b> могут быть скрытые данные.',
     offerMany: 'Файлов: {n}. В них могут быть скрытые данные.',
@@ -70,11 +70,11 @@ const T = {
     nothing: 'No hidden data: checked, the file is clean.',
     photoNote: 'Checked this photo: no hidden data. Telegram compressed it when it was sent. To keep quality, send photos as files.',
     text: 'Plain text has nowhere to hide data about you. Just check the text itself.',
-    unsupported: 'I can\'t clean this format yet. Your file is fine, I didn\'t touch it.',
+    unsupported: 'I can\'t clean this format yet, so I left the file alone. It may still contain hidden data.',
     tooBig: 'The file is over 2 GB: Telegram won\'t let me download it.',
     tooBigDoc: 'This document or photo is too big for me yet. Try the site: https://unmeta.nolim.cloud',
     failed: 'Couldn\'t clean this file. Don\'t share it as clean.',
-    corrupt: 'Couldn\'t open the file: it may be damaged.',
+    corrupt: 'Couldn\'t open the file: it looks damaged or empty. Don\'t share it as clean.',
     replyToFile: 'Reply /clean to a message with a file.',
     offer: '<b>{name}</b> may contain hidden data.',
     offerMany: 'Files: {n}. They may contain hidden data.',
@@ -310,10 +310,10 @@ async function process1(job: Job) {
     q('UPDATE jobs SET input = ? WHERE id = ?').run(input, job.id);
     const d = await isolate(input, job.file_name ?? 'file', job.file_size);
     if (d.outcome === 'nothing') return setJob(job.id, 'nothing');
-    if (d.outcome === 'text' || d.outcome === 'unsupported' || d.outcome === 'too-big') return setJob(job.id, 'skipped', { error: d.outcome });
+    if (d.outcome === 'text' || d.outcome === 'unsupported' || d.outcome === 'too-big' || d.outcome === 'empty') return setJob(job.id, 'skipped', { error: d.outcome });
     if (d.outcome === 'error') {
-      if (/unsupported|no-av-streams/.test(d.error)) return setJob(job.id, 'skipped', { error: 'unsupported' });
-      if (/Error opening|invalid|corrupt|not a valid|truncated|moov atom|ffmpeg exit|unexpected|No PDF header|Failed to parse/i.test(d.error)) return setJob(job.id, 'skipped', { error: 'corrupt' });
+      if (/^unsupported/.test(d.error)) return setJob(job.id, 'skipped', { error: 'unsupported' });
+      if (/no-av-streams|Error opening|invalid|corrupt|not a valid|truncated|moov atom|ffmpeg exit|unexpected|No PDF header|Failed to parse/i.test(d.error)) return setJob(job.id, 'skipped', { error: 'corrupt' });
       if (d.error.startsWith('verify-failed')) return setJob(job.id, 'failed', { error: d.error.slice(0, 300) }); // never hand out a file that failed the check
       return retryLater(job, d.error.slice(0, 300));
     }
@@ -358,7 +358,7 @@ async function progress(id: number) {
 }
 
 const reasonText = (t: (typeof T)['ru'], error: string | null) =>
-  error === 'text' ? t.text : error === 'too-big' ? t.tooBigDoc : error === 'corrupt' ? t.corrupt : t.unsupported;
+  error === 'text' ? t.text : error === 'too-big' ? t.tooBigDoc : error === 'corrupt' || error === 'empty' ? t.corrupt : t.unsupported;
 
 /** When a batch's last file ends: one short result in place of the button, not a message per file. */
 async function settle(id: number) {
