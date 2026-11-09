@@ -152,7 +152,7 @@ for (const s of tg.sent) {
   checked++;
 }
 // Promise 4: done means delivered, and answered in the right chat and topic
-const after = (j) => tg.sent.some((s) => s.reply === j.message_id);
+const after = (j) => tg.sent.some((s) => s.result === j.result_id);
 for (const j of jobs) if (j.status === 'done' && !after(j)) fail(`job ${j.id} done but nothing delivered`);
 for (const s of tg.sent) { if (s.chat > 0) fail('answered in a private chat'); if (s.chat === -1004 && false) fail(''); }
 // Promise 5: nothing was downloaded without being asked

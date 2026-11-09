@@ -1,7 +1,7 @@
 // The built bot against a fake Bot API, real engine: node --test server/bot.test.mjs (after build:server)
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, readdir, rm, truncate, writeFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -17,9 +17,9 @@ const USER = { id: 7, language_code: 'ru' }, USER2 = { id: 8, language_code: 'en
 let chatSeq = -100, GROUP, tmp, tg, bot, api, msgs = 5000, made = {}, menu = [];
 const fixture = (id) => made[id] ?? (existsSync(fx(id)) ? fx(id) : null);
 
-const start = () => {
+const start = (extra = {}) => {
   bot = spawn(process.execPath, [dist], { stdio: 'inherit', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), CACHE_DIR: join(tmp, 'cache'),
-    QUIET_MS: '60', WINDOW_MS: '700', WINDOW_MAX_MS: '3000', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02', SCRUB_MS: '50' } });
+    QUIET_MS: '60', WINDOW_MS: '700', WINDOW_MAX_MS: '3000', TICK_MS: '10', RETRY_MS: '30', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02', SCRUB_MS: '50', CANARY_MS: '0', ...extra } });
   return until(() => tg.of('setMyCommands').length >= 2, 'bot start').then(() => { menu = tg.of('setMyCommands'); });
 };
 const db = () => new DatabaseSync(join(tmp, 'bot.db'), { readOnly: true });
@@ -30,6 +30,11 @@ const doc = (file_id, file_name = file_id, extra = {}) => base({ document: { fil
 const video = (file_id) => base({ video: { file_id, file_name: file_id, duration: 3, width: 320, height: 240, mime_type: 'video/mp4' } });
 const prompt = async (after = 0) => until(() => tg.of('sendMessage').slice(after).find((c) => c.reply_markup), 'offer');
 const press = (p, from = USER) => tg.send({ callback_query: { id: 'q', from, data: p.reply_markup.inline_keyboard[0][0].callback_data, message: { message_id: 999, chat: { id: p.chat_id, type: 'supergroup' } } } });
+const OWNER = 777;
+const toOwner = () => tg.of('sendMessage').filter((c) => c.chat_id === OWNER);
+/** A run with its own settings: alerts on, or something broken on purpose. */
+const added = (id, by, status = 'member', was = 'left') => tg.send({ my_chat_member: { chat: { id, type: 'supergroup' }, from: { id: by }, old_chat_member: { status: was }, new_chat_member: { status } } });
+const withBot = async (env, fn) => { bot.kill('SIGKILL'); await new Promise((s) => setTimeout(s, 100)); tg.calls = []; await start({ OWNER_ID: String(OWNER), ...env }); added(GROUP, OWNER); await settle(); try { await fn(); } finally { bot.kill('SIGKILL'); await new Promise((s) => setTimeout(s, 100)); tg.calls = []; await start(); tg.calls = []; } };
 const settle = () => new Promise((s) => setTimeout(s, 250));
 
 before(async () => {
@@ -99,7 +104,7 @@ test('compressed photos are really checked: a clean one says so, with no file ba
   await writeFile(made['clean-pixel.png'], Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
   tg.send({ message: m });
   press(await prompt());
-  await until(() => tg.of('editMessageText').some((c) => /Проверил это фото/.test(c.text)), 'report');
+  await until(() => tg.of('editMessageText').some((c) => c.text === '✨ <b>Файл чистый</b>'), 'report');
   assert.deepEqual(tg.downloaded.map((d) => d.file_id), ['clean-pixel.png'], 'the largest size');
   assert.equal(tg.sent.length, 0);
   assert.equal(job(m.message_id).status, 'nothing');
@@ -160,7 +165,7 @@ test('a pack with every file cleaned leaves no summary behind', async () => {
   press(p);
   await until(() => tg.sent.length === 2 && tg.of('deleteMessage').length === 1, 'prompt removed');
   await settle();
-  assert.ok(!tg.of('editMessageText').some((c) => /Готово/.test(c.text)));
+  assert.ok(!tg.of('editMessageText').some((c) => /Очищено/.test(c.text)));
 });
 
 test('the second file is much faster than the first: the worker stays warm', async () => {
@@ -181,7 +186,7 @@ test('several people at once: each gets their own button, and a hundred files fr
   for (const m of [...pile, b, v]) tg.send({ message: m });
   await until(() => tg.of('sendMessage').filter((c) => c.reply_markup).length === 3, 'three buttons');
   const offers = tg.of('sendMessage').filter((c) => c.reply_markup);
-  assert.deepEqual(offers.map((c) => c.reply_markup.inline_keyboard[0][0].text).sort(), ['Clean all: 1'.replace('Clean all: 1', 'Remove metadata'), 'Очистить все: 12', 'Очистить от метаданных'].sort());
+  assert.deepEqual(offers.map((c) => c.reply_markup.inline_keyboard[0][0].text).sort(), ['Очистить все: 12', 'Очистить от метаданных', 'Очистить от метаданных'].sort());
   for (const p of offers) press(p);
   await until(() => tg.sent.length === 14, 'all delivered', 60_000);
   const order = tg.sent.map((s) => s.reply);
@@ -204,7 +209,7 @@ test('a pack shows a bar, the current file and what is left; a single file shows
   const one = tg.of('editMessageText').map((c) => c.text).join('\n');
   assert.match(one, /Шаг 1 из 3: Получаю файл/);
   assert.match(one, /Шаг 3 из 3: Отправляю/);
-  assert.match(tg.sent[0].caption, /^<b>Готово: файл чистый<\/b>\nУдалено:/);
+  assert.match(tg.sent[0].caption, /^✅ <b>Файл очищен<\/b>$/);
 });
 
 test('no button until a person asks: only for them, only in that group; /clean always works; /off ends it', async () => {
@@ -240,7 +245,6 @@ test('/clean on one file of an album cleans the whole album; until then nothing 
   assert.equal(tg.of('sendMessage').length, 0);
   assert.equal(tg.downloaded.length, 0);
   tg.send({ message: base({ text: '/clean', from: USER2, reply_to_message: ms[1] }) });
-  await until(() => ms.every((m) => tg.sent.some((s) => s.reply === m.message_id)), 'every file back');
   await until(() => ms.every((m) => job(m.message_id).status === 'done'), 'all done');
   assert.equal(tg.sent.length, 3);
   tg.send({ message: base({ text: '/clean', reply_to_message: ms[0] }) });
@@ -275,11 +279,215 @@ test('tagging the bot cleans: in a reply, in a sentence, in the caption of a fil
   tg.send({ message: base({ text: 'почисти, @Unmeta_Bot, пожалуйста', reply_to_message: said }) });
   const caption = doc('photo.png', 'c.png', { from: fresh, caption: 'с отпуска @unmeta_bot' });
   tg.send({ message: caption });
+  const crowd = doc('photo.jpg', 'crowd.jpg', { from: fresh, caption: '@ivan @petya, смотрите @unmeta_bot, @maria' });
+  tg.send({ message: crowd });
   const album = ['photo.jpg', 'photo.png', 'doc.pdf'].map((f, i) => doc(f, f, { from: fresh, media_group_id: 'a4', ...(i ? {} : { caption: '@unmeta_bot' }) }));
   for (const m of album) tg.send({ message: m });
-  const all = [bare, said, caption, ...album];
-  await until(() => all.every((m) => tg.sent.some((s) => s.reply === m.message_id)), 'all back');
+  const all = [bare, said, caption, crowd, ...album];
+  await until(() => all.every((m) => job(m.message_id)?.status === 'done'), 'all back');
   assert.equal(tg.sent.length, all.length);
+});
+
+test('a slow big file shows its first step, even if the status message took a while to send', async () => {
+  tg.slowSay = 120; tg.latency = 400; // the status reaches Telegram after the work could already start; the download is long
+  const m = doc('photo.jpg', 'big.jpg', { from: { id: 66, language_code: 'ru' } });
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'done', 'done');
+  tg.slowSay = 0; tg.latency = 0;
+  assert.ok(tg.of('editMessageText').some((c) => /Получаю файл/.test(c.text)), 'the download is shown');
+});
+
+test('real percentages while downloading and sending, from the traffic counter; without it, just the step', async () => {
+  const net = join(tmp, 'work/net'), write = (rx, tx) => writeFile(net, `Inter-|   Receive\n face |bytes packets errs drop fifo frame compressed multicast|bytes\n    lo: 5 1 0 0 0 0 0 0 5 1 0 0 0 0 0 0\n  eth0: ${rx} 9 0 0 0 0 0 0 ${tx} 9 0 0 0 0 0 0\n`);
+  await write(1000, 1000);
+  tg.latency = 1400; tg.slowSend = 1400;
+  const m = base({ document: { file_id: 'photo.jpg', file_name: 'net.jpg', file_size: 1_000_000 } });
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => tg.of('editMessageText').some((c) => /Получаю файл/.test(c.text)), 'download starts');
+  await write(501_000, 1000);
+  await until(() => tg.of('editMessageText').some((c) => /Получаю файл/.test(c.text) && /20%/.test(c.text)), 'download percent');
+  await until(() => job(m.message_id).status === 'sending', 'sending');
+  await write(501_000, 20_000);
+  await until(() => job(m.message_id).status === 'done', 'done');
+  tg.latency = 0; tg.slowSend = 0;
+  await rm(net);
+  assert.ok(!tg.of('editMessageText').some((c) => /1\d\d%/.test(c.text)), 'never above 100');
+});
+
+test('one chat stuck on a slow send holds up nobody else', async () => {
+  tg.stuckChat = GROUP;
+  tg.send({ message: base({ text: '/off' }) });
+  await settle();
+  const other = --chatSeq, m = doc('photo.jpg', 'x.jpg', { chat: { id: other, type: 'supergroup' } }), t0 = Date.now();
+  tg.send({ message: base({ chat: { id: other, type: 'supergroup' }, text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => tg.sent.some((s) => s.reply === m.message_id), 'the other chat');
+  tg.stuckChat = null;
+  assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0} ms`);
+});
+
+test('the worker is warm again right after a big file replaces it', async () => {
+  const m = base({ document: { file_id: 'photo.jpg', file_name: 'big.jpg', file_size: 60 * 1024 ** 2 } });
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'done', 'done');
+  await new Promise((s) => setTimeout(s, 300));
+  assert.ok(execSync(`pgrep -P ${bot.pid} || true`).toString().trim(), 'a new worker is already running');
+});
+
+test('a hung download gives up by file size; one failure stays quiet, three in an hour reach the owner', () => withBot({ JOB_MIN_MS: '150' }, async () => {
+  tg.stuckFile = true;
+  const end = async (name) => {
+    const m = doc('photo.jpg', name);
+    tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+    await until(() => job(m.message_id)?.status === 'failed', 'gave up');
+  };
+  await end('one.jpg');
+  assert.equal(toOwner().length, 0);
+  await end('two.jpg');
+  assert.equal(toOwner().length, 0);
+  await end('three.jpg');
+  tg.stuckFile = false;
+  await until(() => toOwner().length, 'owner told');
+  assert.match(toOwner()[0].text, /^Unmeta: .*3/);
+  assert.ok(!/\/\S+/.test(toOwner()[0].text), 'no paths');
+}));
+
+test('the self-test passes quietly and leaves nothing behind', () => withBot({ CANARY_MS: '200' }, async () => {
+  await new Promise((s) => setTimeout(s, 3000));
+  assert.equal(toOwner().length, 0);
+  let empty = false; // its folders exist only while it runs
+  for (let i = 0; i < 300 && !empty; i++) { empty = !(await readdir(join(tmp, 'work'))).some((n) => n.startsWith('job-')); await new Promise((s) => setTimeout(s, 10)); }
+  assert.ok(empty);
+}));
+
+test('when cleaning breaks, the self-test notices without any file and tells the owner', () => withBot({ CANARY_MS: '200', PATH: '/nonexistent' }, async () => {
+  await until(() => toOwner().some((c) => /самопроверк/i.test(c.text)), 'owner told');
+}));
+
+test('a broken database is set aside: the bot still starts', async () => {
+  const broken = join(tmp, 'broken.db');
+  await writeFile(broken, 'this is not a database, not even close '.repeat(200));
+  await withBot({ DB_FILE: broken }, async () => {
+    assert.ok(existsSync(`${broken}.bad`));
+    assert.equal(toOwner().length, 0);
+  });
+});
+
+test('with an owner set, the bot lives only in groups the owner added it to', () => withBot({}, async () => {
+  tg.left = [];
+  const here = { id: --chatSeq, type: 'supergroup' }, there = { id: --chatSeq, type: 'supergroup' }, old = { id: --chatSeq, type: 'supergroup' };
+  added(here.id, OWNER);
+  await settle();
+  const m = doc('photo.jpg', 'a.jpg', { chat: here });
+  tg.send({ message: base({ chat: here, text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => tg.sent.some((s) => s.reply === m.message_id), 'cleaned where allowed');
+
+  added(there.id, USER.id); // someone else adds it
+  await until(() => tg.left.includes(there.id), 'left');
+
+  const f = doc('photo.jpg', 'b.jpg', { chat: old }); // a group it joined before this rule
+  tg.send({ message: base({ chat: old, text: '@unmeta_bot', reply_to_message: f }) });
+  await until(() => tg.left.includes(old.id), 'left an old group');
+  assert.equal(job(f.message_id), undefined);
+
+  tg.left = [];
+  tg.send({ message: base({ chat: there, new_chat_members: [{ username: 'unmeta_bot' }] }) }); // the join notice may come before the owner's event
+  added(here.id, OWNER, 'administrator', 'member'); // made admin: nothing changes
+  await settle();
+  assert.ok(!tg.left.includes(here.id));
+  assert.equal(tg.left.length, 0);
+
+  added(here.id, OWNER, 'kicked', 'member'); // thrown out, then brought back by a stranger
+  added(here.id, USER.id);
+  await until(() => tg.left.includes(here.id), 'not allowed any more');
+}));
+
+test('killed right after the last file of a pack: on restart the pack still ends, nothing stays on "queued"', async () => {
+  const m = doc('photo.jpg', 'x.jpg');
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'done', 'done');
+  await settle();
+  bot.kill('SIGKILL');
+  await new Promise((r) => setTimeout(r, 100));
+  const d = new DatabaseSync(join(tmp, 'bot.db'));
+  d.prepare(`UPDATE batches SET status = 'queued', prompt_id = 4242 WHERE id = ?`).run(job(m.message_id).batch_id); // as if the end of the job was the last thing it did
+  d.close();
+  tg.calls = [];
+  await start();
+  await until(() => rows('SELECT status FROM batches WHERE id = ?', job(m.message_id).batch_id)[0].status === 'finished', 'closed');
+  assert.ok(tg.of('deleteMessage').some((c) => c.message_id === 4242), 'the status message goes away');
+});
+
+test('the answer is in Russian whatever language the sender has', async () => {
+  tg.calls = []; tg.sent = [];
+  tg.send({ message: doc('photo.jpg', 'en.jpg', { from: USER2, caption: '@unmeta_bot' }) });
+  await until(() => tg.sent.length === 1, 'sent');
+  assert.match(tg.sent[0].caption, /^✅ <b>Файл очищен<\/b>$/);
+  assert.ok(menu.every((c) => c.commands[0].description === 'Как пользоваться'));
+});
+
+test('the result says the main thing out loud; one line, nothing else', async () => {
+  const m = doc('photo.jpg');
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => tg.of('sendDocument').length, 'sent');
+  assert.match(tg.of('sendDocument')[0].caption, /^✅ <b>Файл очищен<\/b>$/);
+  const c = doc('photo.jpg', '_clean.jpg');
+  tg.calls = [];
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: doc('clean.txt', 'clean.txt') }) });
+  await until(() => tg.of('editMessageText').some((x) => /<b>Файл (чистый|не очищен)/.test(x.text)), 'a text answer');
+  assert.match(tg.of('editMessageText').at(-1).text, /^\S+ <b>[^<\n]+<\/b>$/);
+  assert.ok(c);
+});
+
+test('an ephemeral command is answered so only its sender sees it; /start is a rich message', async () => {
+  tg.send({ message: { ...base({ text: '/off' }), ephemeral_message_id: 42 } });
+  await until(() => tg.of('sendMessage').length, 'answer');
+  const a = tg.of('sendMessage')[0];
+  assert.equal(a.ephemeral_message_parameters.receiver_user_id, USER.id);
+  assert.equal(a.reply_parameters.ephemeral_message_id, 42);
+  tg.send({ message: base({ text: '/start' }) });
+  await until(() => tg.of('sendRichMessage').length, 'rich help');
+  assert.match(tg.of('sendRichMessage')[0].rich_message.html, /@unmeta_bot/);
+  assert.ok(menu.flatMap((c) => c.commands).every((c) => c.is_ephemeral));
+});
+
+test('an album comes back as one album, answering its first file, with one caption', async () => {
+  const ms = ['photo.jpg', 'photo.png', 'doc.pdf'].map((f) => doc(f, f, { media_group_id: 'a6', from: { id: 67, language_code: 'ru' } }));
+  for (const m of ms) tg.send({ message: m });
+  await settle();
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: ms[2] }) });
+  await until(() => ms.every((m) => job(m.message_id)?.status === 'done'), 'all done');
+  const [call] = tg.of('sendMediaGroup');
+  assert.equal(tg.of('sendMediaGroup').length, 1);
+  assert.equal(tg.of('sendDocument').length, 0);
+  assert.equal(call.media.length, 3);
+  assert.equal(call.reply_parameters.message_id, ms[0].message_id);
+  assert.match(call.media[0].caption, /^✅ <b>Файлы очищены: 3<\/b>$/);
+  assert.equal(call.media[1].caption, undefined);
+  assert.equal(new Set(ms.map((m) => job(m.message_id).result_id)).size, 3);
+  assert.deepEqual(tg.sent.map((s) => s.name), ['photo_clean.jpg', 'photo_clean.png', 'doc_clean.pdf']);
+});
+
+test('what Telegram won\'t mix goes separately; more than 10 files become two albums; a file with nothing to remove stays out', async () => {
+  const from = { id: 68, language_code: 'ru' }, one = (f, i) => doc(f, `${i}-${f}`, { media_group_id: 'a7', from });
+  const docs = Array.from({ length: 12 }, (_, i) => one('photo.jpg', i)), vid = { ...video('video.mp4'), media_group_id: 'a7', from }, broken = one('corrupt.mp4', 99);
+  for (const m of [...docs, vid, broken]) tg.send({ message: m });
+  await settle();
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: docs[0] }) });
+  await until(() => [...docs, vid, broken].every((m) => ['done', 'skipped'].includes(job(m.message_id)?.status)), 'all ended');
+  assert.deepEqual(tg.of('sendMediaGroup').map((c) => c.media.length), [10, 2]);
+  assert.equal(tg.of('sendVideo').length, 1);
+  assert.equal(job(broken.message_id).error, 'corrupt');
+  await until(() => tg.of('editMessageText').some((c) => /Очищено: 13 из 14/.test(c.text)), 'summary');
+});
+
+test('an album that fails to send is retried, and nothing is lost or sent twice', async () => {
+  tg.flakyGroups = 1;
+  const ms = ['photo.jpg', 'photo.png'].map((f) => doc(f, f, { media_group_id: 'a8', from: { id: 69 } }));
+  for (const m of ms) tg.send({ message: m });
+  await settle();
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: ms[0] }) });
+  await until(() => ms.every((m) => job(m.message_id)?.status === 'done'), 'all done');
+  assert.equal(tg.sent.length, 2);
 });
 
 test('a tag on a later file of an album still takes the files before it', async () => {
@@ -324,7 +532,7 @@ test('/clean: again says already done, on text asks for a file, a failed file ca
 });
 
 test('a damaged, empty, fake or vanished file gets an honest answer and leaves nothing behind', async () => {
-  for (const [id, text] of [['corrupt.mp4', /повреждён/], ['empty.mp4', /повреждён/], ['fake.pdf', /не поддерживается|повреждён/], ['vanished.mp4', /Не получилось/]]) {
+  for (const [id, text] of [['corrupt.mp4', /повреждён/], ['empty.mp4', /повреждён/], ['fake.pdf', /не поддерживается|повреждён/], ['vanished.mp4', /не очищен/]]) {
     tg.calls = [];
     const m = doc(id);
     tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
@@ -435,12 +643,12 @@ test('killed mid-work: restarts, finishes, repeats nothing; a repeated update do
 
 test('a file that hangs is killed, the job fails honestly, the bot lives on', async () => {
   bot.kill('SIGKILL'); await settle();
-  const fast = spawn(process.execPath, [dist], { stdio: 'ignore', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), QUIET_MS: '40', TICK_MS: '10', RETRY_MS: '10', JOB_MIN_MS: '1', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
+  const fast = spawn(process.execPath, [dist], { stdio: 'ignore', env: { ...process.env, BOT_TOKEN: 't', BOT_API: api, WORK_DIR: join(tmp, 'work'), DB_FILE: join(tmp, 'bot.db'), QUIET_MS: '40', TICK_MS: '10', RETRY_MS: '10', JOB_MIN_MS: '150', EDIT_EVERY_MS: '0', SLEEP_SCALE: '0.02' } });
   const m = doc('photo.jpg');
   tg.send({ message: base({ text: '/clean', reply_to_message: m }) });
   await until(() => job(m.message_id)?.status === 'failed', 'failed');
   assert.match(job(m.message_id).error, /worker-died/);
-  await until(() => tg.of('editMessageText').some((c) => /Не получилось/.test(c.text)), 'told');
+  await until(() => tg.of('editMessageText').some((c) => /не очищен/.test(c.text)), 'told');
   fast.kill('SIGKILL'); await settle();
   await start();
 });

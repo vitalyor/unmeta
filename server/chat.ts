@@ -35,6 +35,17 @@ export function sendCall(shape: Shape, file: string, thumb: string | null, capti
   }
 }
 
+/** What may share an album: Telegram won't mix documents, audio and video, and GIFs, voices and round videos can't go in at all. */
+export const albumKind = (s: Shape): string | null => (s.type === 'video' || s.type === 'audio' || s.type === 'document' ? s.type : null);
+
+/** One file of sendMediaGroup, looking the way it arrived. */
+export function albumItem(shape: Shape, file: string, thumb: string | null, caption?: string): object {
+  const media = fileUri(file), preview = thumb ? { thumbnail: fileUri(thumb) } : {}, text = caption ? { caption, parse_mode: 'HTML' } : {};
+  if (shape.type === 'video') return { type: 'video', media, duration: shape.duration, width: shape.width, height: shape.height, ...preview, supports_streaming: true, ...text };
+  if (shape.type === 'audio') return { type: 'audio', media, duration: shape.duration, ...preview, ...text };
+  return { type: 'document', media, ...preview, disable_content_type_detection: true, ...text };
+}
+
 /** Should the bot offer its button under this group message? Everything that can carry metadata, compressed or not. */
 export function offerable(m: any): boolean {
   if (m.is_automatic_forward || (m.from?.is_bot && !m.sender_chat)) return false; // channel reposts, other bots; anonymous admins are people

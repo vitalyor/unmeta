@@ -1,6 +1,7 @@
 // The bot's memory: what arrived, what was asked, what happened. A week of IDs, statuses and errors, so a restart
 // loses nothing, nothing runs twice, and a failure can be looked up. No file contents, ever; a file's name and
 // Telegram id live here only until the job ends (or a week, if nobody presses the button).
+import { renameSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 export const WEEK = 7 * 24 * 3600 * 1000;
@@ -21,7 +22,18 @@ export interface Batch {
   shown: number; created_at: number; updated_at: number;
 }
 
-export function openDb(path: string) {
+/** A damaged database must not keep the bot down: the queue is lost, the service is not. Only real damage counts, never a full disk or a lock. */
+export function openDb(path: string): { db: DatabaseSync; reset: boolean } {
+  try { return { db: open(path), reset: false }; }
+  catch (e) {
+    if (!/malformed|not a database|corrupt/i.test(String(e))) throw e;
+    renameSync(path, `${path}.bad`);
+    for (const x of ['-wal', '-shm']) rmSync(path + x, { force: true });
+    return { db: open(path), reset: true };
+  }
+}
+
+function open(path: string) {
   const db = new DatabaseSync(path);
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -45,9 +57,12 @@ export function openDb(path: string) {
     DROP TABLE IF EXISTS muted;
     CREATE TABLE IF NOT EXISTS buttons (chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (chat_id, user_id)); -- who turned the button on
     CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS allowed (chat_id INTEGER PRIMARY KEY); -- groups the owner added the bot to
   `);
   try { db.exec('ALTER TABLE batches ADD COLUMN shown INTEGER NOT NULL DEFAULT 0'); } catch { /* already there */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN album TEXT'); } catch { /* already there */ }
   db.exec('CREATE INDEX IF NOT EXISTS jobs_album ON jobs (chat_id, album)');
+  const check = db.prepare('PRAGMA quick_check').get() as { quick_check: string };
+  if (check.quick_check !== 'ok') { db.close(); throw new Error('database is corrupt'); }
   return db;
 }

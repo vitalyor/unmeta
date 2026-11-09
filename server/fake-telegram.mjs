@@ -9,7 +9,7 @@ const local = (uri) => decodeURIComponent(uri.replace(/^file:\/\//, '')); // wha
 
 export class FakeTelegram {
   calls = []; sent = []; queue = []; downloaded = []; ids = 1_000_000; update = 1;
-  kicked = new Set(); migrated = new Map(); rate = { limit: Infinity, perMs: 1000 }; times = new Map(); flaky = 0; lost = 0; latency = 0;
+  kicked = new Set(); migrated = new Map(); rate = { limit: Infinity, perMs: 1000 }; times = new Map(); flaky = 0; lost = 0; latency = 0; slowSay = 0; slowSend = 0; stuckChat = null; stuckFile = false;
   constructor(tmp, fixture) { this.tmp = tmp; this.fixture = fixture; }
 
   async listen() {
@@ -23,7 +23,7 @@ export class FakeTelegram {
           this.queue = this.queue.filter((u) => u.update_id >= p.offset); // an update stays until the next poll confirms it: a crash repeats it
           return res.end(JSON.stringify({ ok: true, result: this.queue.slice(0, 100) }));
         }
-        if (this.flaky && Math.random() < this.flaky && method !== 'getMe') return method in SENDS ? res.end(JSON.stringify({ ok: false, error_code: 502, description: 'Bad Gateway' })) : req.socket.destroy();
+        if (this.flaky && Math.random() < this.flaky && method !== 'getMe') return method in SENDS || method === 'sendMediaGroup' ? res.end(JSON.stringify({ ok: false, error_code: 502, description: 'Bad Gateway' })) : req.socket.destroy();
         try {
           const result = await this.answer(method, p);
           if (method === 'getFile' && Math.random() < this.lost) return req.socket.destroy(); // the file arrived on disk, the bot never heard
@@ -49,8 +49,11 @@ export class FakeTelegram {
     const call = { method, ...p, at: Date.now() };
     this.calls.push(call);
     if (method === 'getMe') return { username: 'unmeta_bot' };
-    if (method === 'sendMessage') { this.gate(p.chat_id); return { message_id: ++this.ids }; }
+    if (method === 'leaveChat') { this.left = [...(this.left ?? []), p.chat_id]; return true; }
+    if (method === 'sendRichMessage') { if (!p.rich_message?.html) this.fail(400, 'Bad Request: no content'); return { message_id: ++this.ids }; }
+    if (method === 'sendMessage') { if (p.chat_id === this.stuckChat) await new Promise((s) => setTimeout(s, 4000)); if (this.slowSay) await new Promise((s) => setTimeout(s, this.slowSay)); this.gate(p.chat_id); return { message_id: ++this.ids }; }
     if (method === 'getFile') {
+      if (this.stuckFile) await new Promise(() => {}); // accepted, and silence
       if (this.latency) await new Promise((s) => setTimeout(s, this.latency));
       await mkdir(join(this.tmp, 'cache/documents'), { recursive: true });
       const path = join(this.tmp, 'cache/documents', `file_${++this.ids}`);
@@ -60,7 +63,27 @@ export class FakeTelegram {
       this.downloaded.push({ file_id: p.file_id, path });
       return { file_path: path };
     }
+    if (method === 'sendMediaGroup') {
+      if (this.flakyGroups) { this.flakyGroups--; this.fail(502, 'Bad Gateway'); }
+      if (this.slowSend) await new Promise((s) => setTimeout(s, this.slowSend));
+      this.gate(p.chat_id);
+      const kinds = new Set(p.media.map((m) => (m.type === 'photo' ? 'video' : m.type)));
+      if (kinds.size > 1) this.fail(400, "Bad Request: document can't be mixed with other media types");
+      if (p.media.length < 2 || p.media.length > 10) this.fail(400, 'Bad Request: there must be 2-10 items');
+      const reply = p.reply_parameters?.message_id, out = [];
+      for (const [i, m] of p.media.entries()) {
+        const path = local(m.media);
+        if (!existsSync(path)) this.fail(400, "Bad Request: can't get stat about the file");
+        const copy = join(this.tmp, `out-${++this.ids}`);
+        await copyFile(path, copy);
+        const message_id = ++this.ids;
+        this.sent.push({ at: Date.now(), method, chat: p.chat_id, reply: i ? `${reply}#${i}` : reply, result: message_id, thread: p.message_thread_id, name: path.split('/').at(-1), copy, caption: m.caption });
+        out.push({ message_id });
+      }
+      return out;
+    }
     if (method in SENDS) {
+      if (this.slowSend) await new Promise((s) => setTimeout(s, this.slowSend));
       this.gate(p.chat_id);
       const path = local(p[SENDS[method]]);
       if (!existsSync(path)) this.fail(400, "Bad Request: can't get stat about the file");
@@ -70,7 +93,8 @@ export class FakeTelegram {
       const copy = join(this.tmp, `out-${++this.ids}`);
       await copyFile(path, copy);
       this.sent.push({ at: Date.now(), method, chat: p.chat_id, reply: p.reply_parameters?.message_id, thread: p.message_thread_id, name: path.split('/').at(-1), copy, thumb: !!thumb, caption: p.caption, supports_streaming: p.supports_streaming, duration: p.duration });
-      return { message_id: ++this.ids };
+      this.sent.at(-1).result = ++this.ids;
+      return { message_id: this.ids };
     }
     if (method === 'editMessageText' || method === 'deleteMessage') { if (this.kicked.has(p.chat_id)) this.fail(403, 'Forbidden'); }
     return true;

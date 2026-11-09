@@ -16,10 +16,11 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    init: true # reaps whatever a killed worker leaves behind, and stops at once on SIGTERM
     logging: *logs
     healthcheck: # the bot touches this file after every answer from Telegram; heal.sh restarts it when it stops
-      test: ["CMD-SHELL", "test -n \"$(find /var/lib/telegram-bot-api/work/alive -mmin -3 2>/dev/null)\""]
-      interval: 30s
+      test: ["CMD-SHELL", "test -n \"$(find /var/lib/telegram-bot-api/work/alive -mmin -2 2>/dev/null)\""]
+      interval: 20s
       timeout: 10s
       retries: 2
       start_period: 90s
@@ -32,5 +33,15 @@ services:
       - data:/var/lib/telegram-bot-api
     depends_on:
       - bot-api
+  net-meter: # Telegram reports no progress on files; the Bot API server's traffic does. Apart from it, so nothing depends on this.
+    image: busybox:stable
+    restart: unless-stopped
+    logging: *logs
+    network_mode: service:bot-api
+    depends_on:
+      - bot-api
+    volumes:
+      - data:/var/lib/telegram-bot-api
+    command: ["sh", "-c", "cd /var/lib/telegram-bot-api/work && while sleep 1; do cp /proc/net/dev net.new && mv net.new net; done"]
 volumes:
   data:
