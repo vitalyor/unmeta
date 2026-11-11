@@ -6,7 +6,8 @@ export type Media = { file_id: string; file_size?: number; file_name?: string; m
 export type Shape = { type: 'document' | 'video' | 'audio' | 'animation' | 'voice' | 'video_note'; duration?: number; width?: number; height?: number; length?: number };
 export type Item = { media: Media; name: string; photo: boolean; shape: Shape };
 
-const MAX_BYTES = 2000 * 1024 ** 2; // local Bot API limit
+/** Largest file the bot takes: 2000 MB is the local Bot API limit; a small disk may set less (cleaning takes 2× the file). */
+export const MAX_BYTES = Number(process.env.MAX_FILE_MB ?? 2000) * 1024 ** 2;
 const EXT: Record<string, string> = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a' };
 // By name and type only: nothing is downloaded until someone presses a button. Text formats stay out: nowhere to hide data.
 const MEDIA = /^(jpe?g|png|gif|webp|hei[cf]|avif|tiff?|psd|psb|pdf|svg|mp4|m4v|mov|qt|mkv|webm|avi|wmv|asf|3gp|3g2|mts|m2ts|mpg|mpeg|vob|mp3|m4a|m4b|aac|flac|ogg|oga|opus|wav|aiff?|wma)$/;

@@ -6,7 +6,7 @@ import { fork, type ChildProcess, spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
 import { mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { esc, mediaOf, offerable, sendCall, type Item, type Shape, albumItem, albumKind } from './chat';
+import { esc, MAX_BYTES, mediaOf, offerable, sendCall, type Item, type Shape, albumItem, albumKind } from './chat';
 import { openDb, ENDED, LIVE, WEEK, type Batch, type Job, type JobStatus } from './db';
 import type { Done } from './worker';
 import ruCopy from '../copy/ru.json';
@@ -52,7 +52,6 @@ const T = {
     leftover: '⚠️ <b>Файл очищен не полностью, осталось: {list}</b>',
     nothing: '✨ <b>Файл чистый</b>',
     unsupported: '🚫 <b>Файл не очищен: формат не поддерживается</b>',
-    tooBig: '📦 Файл больше 2 ГБ: Telegram не даст мне его скачать.',
     tooBigDoc: '📦 <b>Файл не очищен: слишком большой</b>',
     failed: '❌ <b>Файл не очищен</b>',
     corrupt: '💔 <b>Файл не очищен: он повреждён</b>',
@@ -85,7 +84,6 @@ const T = {
     leftover: '⚠️ <b>Not everything could be removed: {list}</b>',
     nothing: '✨ <b>The file is clean</b>',
     unsupported: '🚫 <b>Not cleaned: format not supported</b>',
-    tooBig: '📦 The file is over 2 GB: Telegram won\'t let me download it.',
     tooBigDoc: '📦 <b>Not cleaned: file too big</b>',
     failed: "❌ <b>Not cleaned</b>",
     corrupt: "💔 <b>Not cleaned: the file is damaged</b>",
@@ -363,9 +361,10 @@ async function scrub() {
   }
 }
 
-async function hasRoom(size: number) {
+/** Free disk for `need` bytes plus a margin. Measured: a file takes 2x its size (original + clean copy; ffmpeg moves the MP4 index in place). */
+async function hasRoom(need: number) {
   const s = await statfs(WORK);
-  return s.bavail * s.bsize > size * 3.2 + 300 * 1024 ** 2; // original + clean copy + a third while the MP4 index moves
+  return s.bavail * s.bsize > need + 300 * 1024 ** 2;
 }
 
 function retryLater(job: Job, error: string) {
@@ -418,8 +417,9 @@ function gaveUp(job: Job, e: unknown) {
 async function prepare(job: Job): Promise<Ready | undefined> {
   if (!q(`UPDATE jobs SET status = 'running', attempts = attempts + 1, updated_at = ? WHERE id = ? AND status = 'queued'`).run(Date.now(), job.id).changes) return; // the bot left that group a moment ago
   job.attempts++;
+  if (job.file_size > MAX_BYTES) return void setJob(job.id, 'skipped', { error: 'too-big' }); // never download what the disk can't hold
   await progress(job, 'get', null, true);
-  if (!(await hasRoom(job.file_size))) return void retryLater(job, 'no-disk-space');
+  if (!(await hasRoom(2 * job.file_size))) return void retryLater(job, 'no-disk-space');
   const input = (await metered('rx', job.file_size, (p) => progress(job, 'get', p), () => tg<{ file_path: string }>('getFile', { file_id: job.file_id }, patience(job.file_size)))).file_path;
   await progress(job, 'clean', null, true);
   const d = await isolate(input, job.file_name ?? 'file', job.file_size, (p) => void progress(job, 'clean', p));
@@ -481,7 +481,7 @@ function albums(ready: Ready[]) {
 async function process1(first: Job) {
   const mates = first.album ? q(`SELECT * FROM jobs WHERE batch_id = ? AND album = ? AND status = 'queued' AND next_at <= ? ORDER BY id`).all(first.batch_id, first.album, Date.now()) as unknown as Job[] : [first];
   const size = mates.reduce((s, j) => s + j.file_size, 0);
-  const jobs = mates.length > 1 && await hasRoom(size) ? mates : [first]; // no room for all of it at once: one by one
+  const jobs = mates.length > 1 && await hasRoom(size + Math.max(...mates.map((j) => j.file_size))) ? mates : [first]; // clean copies wait to go out together, each original goes once cleaned; no room: one by one
   jobDeadline = Date.now() + jobs.reduce((s, j) => s + 4 * patience(j.file_size), 60_000);
   const ready: Ready[] = [];
   album = { i: 0, n: jobs.length };

@@ -325,6 +325,14 @@ test('one chat stuck on a slow send holds up nobody else', async () => {
   assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0} ms`);
 });
 
+test('a file over the size limit is answered at once and never downloaded', () => withBot({ MAX_FILE_MB: '50' }, async () => {
+  const m = base({ document: { file_id: 'photo.jpg', file_name: 'huge.jpg', file_size: 60 * 1024 ** 2 } });
+  tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
+  await until(() => job(m.message_id)?.status === 'skipped', 'skipped');
+  await until(() => tg.of('editMessageText').some((c) => /слишком большой/.test(c.text)), 'answer');
+  assert.equal(tg.of('getFile').length, 0);
+}));
+
 test('the worker is warm again right after a big file replaces it', async () => {
   const m = base({ document: { file_id: 'photo.jpg', file_name: 'big.jpg', file_size: 60 * 1024 ** 2 } });
   tg.send({ message: base({ text: '@unmeta_bot', reply_to_message: m }) });
