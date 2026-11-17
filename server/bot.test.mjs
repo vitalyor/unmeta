@@ -469,8 +469,8 @@ test('an album comes back as one album, answering its first file, with one capti
   assert.equal(tg.of('sendDocument').length, 0);
   assert.equal(call.media.length, 3);
   assert.equal(call.reply_parameters.message_id, ms[0].message_id);
-  assert.match(call.media[0].caption, /^✅ <b>Файлы очищены: 3<\/b>$/);
-  assert.equal(call.media[1].caption, undefined);
+  assert.match(call.media.at(-1).caption, /^✅ <b>Файлы очищены: 3<\/b>$/, 'under the last file, not between files');
+  assert.equal(call.media[0].caption, undefined);
   assert.equal(new Set(ms.map((m) => job(m.message_id).result_id)).size, 3);
   assert.deepEqual(tg.sent.map((s) => s.name), ['photo_clean.jpg', 'photo_clean.png', 'doc_clean.pdf']);
 });
