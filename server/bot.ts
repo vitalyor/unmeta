@@ -455,7 +455,7 @@ async function deliver(group: Ready[]) {
   const send = (method: string, params: object) => metered('tx', size, (p) => progress(first, 'send', p), () =>
     inChat(chat, (c) => tg<any>(method, { chat_id: c, ...params, ...place(thread, reply) }, patience(size))));
   if (group.length > 1) {
-    const sent = await send('sendMediaGroup', { media: group.map((r, i) => albumItem(shape(r.job), r.out, r.thumb, i === group.length - 1 ? caption : undefined)) }) // on the last item: in a file album Telegram shows each caption under its own file as { message_id: number }[];
+    const sent = await send('sendMediaGroup', { media: group.map((r, i) => albumItem(shape(r.job), r.out, r.thumb, i === group.length - 1 ? caption : undefined)) }) as { message_id: number }[]; // caption on the last item: in a file album Telegram shows each caption under its own file
     group.forEach((r, i) => setJob(r.job.id, 'done', { result_id: sent[i].message_id, error: null }));
   } else {
     const call = sendCall(shape(first), group[0].out, group[0].thumb, caption);
